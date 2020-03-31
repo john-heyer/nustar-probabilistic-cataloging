@@ -16,6 +16,7 @@ ParameterSample = namedtuple('ParameterSample', ['sources_x', 'sources_y', 'sour
 # [] remove mask from parameter sample and construct based on n
 # [] make non-normal moves likelihoods constant time
 # [] clean code statics etc.
+# [] make move enum
 # [] paralellize
 # [] constants for strings clean
 

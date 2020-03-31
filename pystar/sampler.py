@@ -30,15 +30,16 @@ MOVES = [NORMAL, BIRTH, DEATH, SPLIT, MERGE, HYPER]
 class NuSTARSampler:
 
     def __init__(
-            self, model, rng_key, params_init=None, burn_in=0, samples=1000, jump_rate=.1, hyper_rate=.02, period=1000,
-            proposal_width_xy=.75, proposal_width_b=2.0, proposal_width_mu=1.0, proposal_width_split=200
+            self, model, rng_key, params_init=None, burn_in_steps=0, samples=10000, jump_rate=.1, hyper_rate=.02,
+            proposal_width_xy=.75, proposal_width_b=2.0, proposal_width_mu=1.0, proposal_width_split=200,
+            sample_batch_size=1000
     ):
         self.model = model
         self.rng_key = rng_key
 
         # initial params
         if params_init is None:
-            self.head = self.init_params(self.rng_key)
+            self.head = self.random_params(self.rng_key)
         else:
             self.head = params_init
         self.log_joint_head = model.log_joint(self.head)
@@ -49,7 +50,7 @@ class NuSTARSampler:
         NuSTARSampler.check_parameter_invariants(self.head)
 
         # sampler configs
-        self.burn_in = burn_in
+        self.burn_in_steps = burn_in_steps
         self.samples = samples
         self.jump_rate = jump_rate
         self.hyper_rate = hyper_rate
@@ -61,7 +62,7 @@ class NuSTARSampler:
         # stats
         self.move_stats = self.__new_move_stats()
         self.accepted = 0
-        self.period = period
+        self.sample_batch_size = sample_batch_size
         self.acceptance_rates_per_period = []
         self.n_sources_counts = {}
 
@@ -75,7 +76,7 @@ class NuSTARSampler:
         assert np.all(params.sources_b[np.logical_not(params.mask)] == 0), "outside mask b values not zero"
 
     @staticmethod
-    def init_params(rng_key):
+    def random_params(rng_key):
         sub_key, sub_key_2 = random.split(rng_key, 2)
         mu_init = np.exp(random.uniform(sub_key, minval=np.log(N_MIN), maxval=np.log(N_MAX)))
         n_init = nprand.poisson(mu_init)
@@ -360,25 +361,11 @@ class NuSTARSampler:
             NuSTARSampler.__normal_hyper
         )
         sample_log_joint = model.log_joint(sample_new)
-        # end = timer()
-        # if move_type == MERGE:
-        #     print("merge time", end - start)
-        # if move_type == SPLIT:
-        #     print("SPLIT time", end - start)
-        # if move_type == BIRTH:
-        #     print("birth time", end - start)
-        # if move_type == DEATH:
-        #     print("DEATH time", end - start)
-        # if move_type == NORMAL:
-        #     print("NORMAL time", end - start)
-        # if move_type == HYPER:
-        #     print("HYPER time", end - start)
         return sample_new, log_proposal_ratio, sample_log_joint
 
     @partial(jit, static_argnums=(0, 2))
-    def sample_jit(self, rng_key, samples):
+    def sample_batch(self, rng_key, samples):
 
-        @jit
         def pack_sample(params):
             return np.array(
                 [
@@ -388,91 +375,81 @@ class NuSTARSampler:
                     params.mask * params.mu
                 ]
             )
-        @jit
-        def unpack_sample(arr):
-            return ParameterSample(
-                sources_x=arr[0],
-                sources_y=arr[1],
-                sources_b=arr[2],
-                mask=(np.not_equal(arr[3], 0)),
-                mu=arr[3][0],
-                n=np.sum(np.not_equal(arr[3], 0))
-            )
 
-        def sampler_kernel(i, key, head, log_joint, chain, accepted, moves, alphas):
+        def sampler_kernel(i, key, head, log_joint_head, chain, acceptances_i, moves_i, log_alphas_i):
             key1, key2, key3 = random.split(key, 3)
             move_type = NuSTARSampler.__get_move_type(key1, self.jump_rate, self.hyper_rate)
             sample_new, log_proposal_ratio, sample_log_joint = NuSTARSampler.__cond_proposal(
                 key2, head, self.model,  self.proposal_width_xy, self.proposal_width_b, self.proposal_width_split, self.proposal_width_mu, move_type
             )
-            log_alpha = sample_log_joint - log_joint + log_proposal_ratio
+            log_alpha = sample_log_joint - log_joint_head + log_proposal_ratio
             accept = np.log(random.uniform(key3, minval=0, maxval=1)) < log_alpha
-            accepted += accept
             new_head = lax.cond(accept, sample_new, lambda x: x, head, lambda x: x)
-            new_log_joint = np.where(accept, sample_log_joint, log_joint)
+            new_log_joint = np.where(accept, sample_log_joint, log_joint_head)
             chain = index_update(chain, i, pack_sample(new_head))
-            moves = index_update(moves, i, move_type)
-            alphas = index_update(alphas, i, log_alpha)
-            return new_head, new_log_joint, chain, accepted, moves, alphas
+            acceptances_i = index_update(acceptances_i, i, accept)
+            moves_i = index_update(moves_i, i, move_type)
+            log_alphas_i = index_update(log_alphas_i, i, log_alpha)
+            return new_head, new_log_joint, chain, acceptances_i, moves_i, log_alphas_i
 
         def next_state(i, state):
-            key, head, log_joint, chain, accepted, moves, alphas = state
-            # key, head, log_joint = state
+            key, head, log_joint_head, chain, acceptances_i, moves_i, log_alphas_i = state
             _, key = random.split(key)
-            sample_new, log_joint_new, chain_next, accepted, moves, alphas = sampler_kernel(i, key, head, log_joint, chain, accepted, moves, alphas)
-            # sample_new, log_joint_new = sampler_kernel(key, head, log_joint)
-            return key, sample_new, log_joint_new, chain_next, accepted, moves, alphas
-            # return key, sample_new, log_joint_new
+            new_head, new_log_joint, chain, acceptances_i, moves_i, log_alphas_i = sampler_kernel(
+                i, key, head, log_joint_head, chain, acceptances_i, moves_i, log_alphas_i
+            )
+            return key, new_head, new_log_joint, chain, acceptances_i, moves_i, log_alphas_i
 
         all_samples = np.zeros((samples, 4, N_MAX))
+        acceptances = np.zeros(samples)
         moves = np.zeros(samples)
         log_alphas = np.zeros(samples)
-        sample_init = self.head
-        accepted = 0
-        state_init = (rng_key, sample_init, self.log_joint_head, all_samples, accepted, moves, log_alphas)
-        # state_init = (rng_key, sample_init, self.log_joint_head)
-        rng_key, final_sample, final_log_joint, posterior, total_accepted, all_moves, alphas = lax.fori_loop(0, samples, next_state, state_init)
-        # rng_key, final_sample, final_log_joint = lax.fori_loop(0, samples, next_state, state_init)
-        # state = state_init
-        # for i in tqdm(range(samples)):
-        #     state = next_state(i, state)
-        # rng_key, final_sample, final_log_joint = state
-        # rng_key, final_sample, final_log_joint, posterior, total_accepted, all_moves, alphas = state
-        return final_sample, final_log_joint, posterior, total_accepted, all_moves, alphas
-        # return final_sample, final_log_joint
+        state_init = (rng_key, self.head, self.log_joint_head, all_samples, acceptances, moves, log_alphas)
+        rng_key, final_sample, final_log_joint, all_samples, acceptances, moves, log_alphas = lax.fori_loop(
+            0, samples, next_state, state_init
+        )
+        return final_sample, final_log_joint, all_samples, acceptances, moves, np.exp(log_alphas)
 
-    def sample(self):
-        chains = []
-        t = tqdm(total=self.samples)
-        for i in range(self.samples//1000):
+    def sample_with_burnin(self):
+        self.run_sampler(burn_in=True)
+        self.run_sampler(burn_in=False)
+        print("Done!")
+
+    def __collect_stats(self, acceptances, moves, alphas):
+        pass
+
+    def __combine_samples(self, chains):
+        pass
+
+    def run_sampler(self, burn_in=False):
+        if burn_in:
+            batches = self.burn_in_steps // self.sample_batch_size
+            print(f"Burning in for {batches * self.sample_batch_size} steps:")
+        else:
+            # sampling
+            batches = self.samples // self.sample_batch_size
+            print(f"Sampling for {batches * self.sample_batch_size} steps:")
+
+        chains, acceptances, all_moves, all_alphas = [], [], [], []
+        t = tqdm(total=(batches * self.sample_batch_size))
+        for batch_i in range(batches):
             self.rng_key, key = random.split(self.rng_key)
-            out = self.sample_jit(key, 1000)
-            out[2].block_until_ready()
-            self.head, self.log_joint_head = out[0], out[1]
-            chains.append(out[2])
-            t.update(1000)
-        return chains[-1]
+            head, log_joint_head, chain, accepts, moves, alphas = self.sample_batch(key, self.sample_batch_size)
+            self.head, self.log_joint_head = head, log_joint_head
+            if not burn_in:
+                chains.append(chain)
+            acceptances.append(accepts)
+            all_moves.append(moves)
+            all_alphas.append(alphas)
+            t.update(self.sample_batch_size)
+        print("Recording stats from run...")
+        self.__collect_stats(acceptances, all_moves, all_alphas)
+        if not burn_in:
+            print("Gathering posterior samples...")
+            self.__combine_samples(chains)
 
-    def sample3(self):
-        # self.head, self.log_joint_head, self.chain, accepted, moves, alphas = self.sample_jit()
-        print("samples:", self.samples)
-        key1, key2, key3 = random.split(self.rng_key, 3)
-        start = timer()
-        out = self.sample_jit(key1, self.samples)
-        out[2].block_until_ready()
-        # print("accepted:", out[3])
-        # print("time1:", timer() - start)
-        # start = timer()
-        # out = self.sample_jit(key2, self.samples)
-        # out[2].block_until_ready()
-        # print("accepted:", out[3])
-        # print("time2:", timer() - start)
-        # start = timer()
-        # out = self.sample_jit(key3, self.samples)
-        # out[2].block_until_ready()
-        # print("accepted:", out[3])
-        # print("time3:", timer() - start)
-        return out[2]
+
+
 
     def sample2(self):
         accepted_recently = 0
@@ -510,19 +487,3 @@ class NuSTARSampler:
                 N_SOURCES_COUNTS: self.n_sources_counts
             }
         )
-
-
-# key = random.PRNGKey(0)
-# for i in range(10):
-#     startl = timer()
-#     key, sub_key = random.split(key)
-#     params = NuSTARSampler.init_params(sub_key)
-#     # print(params.n)
-#     start = timer()
-#     params, r = NuSTARSampler.merge(sub_key, params, PROPOSAL_WIDTH_SPLIT)
-#     params.sources_x.block_until_ready()
-#     end = timer()
-#     print("time move:", end - start)
-#     # print(np.sum(normal.sources_x != 0))
-#     endl = timer()
-#     print()
