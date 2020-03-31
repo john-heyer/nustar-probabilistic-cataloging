@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 import jax.numpy as np
 from jax import grad, jit, vmap, random, scipy, lax
+from jax.ops import index_update
 import numpy.random as nprand  # for drawing poisson random numbers
 nprand.seed(1)
 
@@ -37,7 +38,7 @@ class NuSTARSampler:
 
         # initial params
         if params_init is None:
-            self.head = self.__init_params(self.rng_key)
+            self.head = self.init_params(self.rng_key)
         else:
             self.head = params_init
         self.log_joint_head = model.log_joint(self.head)
@@ -45,6 +46,7 @@ class NuSTARSampler:
             self.head.sources_x, self.head.sources_y, self.head.sources_b
         )
         self.chain = [self.head]
+        NuSTARSampler.check_parameter_invariants(self.head)
 
         # sampler configs
         self.burn_in = burn_in
@@ -63,34 +65,30 @@ class NuSTARSampler:
         self.acceptance_rates_per_period = []
         self.n_sources_counts = {}
 
-        # presample step
-        # self.__cache_jits()
+    @staticmethod
+    def check_parameter_invariants(params):
+        # only used for testing as will not compile with jax
+        assert params.n == np.sum(params.mask), "parameter n not matching mask"
+        assert np.all(params.mask == (np.arange(N_MAX) < params.n)), "mask is not an array of ones with zero padding"
+        assert np.all(params.sources_x[np.logical_not(params.mask)] == 0), "outside mask x values not zero"
+        assert np.all(params.sources_y[np.logical_not(params.mask)] == 0), "outside mask y values not zero"
+        assert np.all(params.sources_b[np.logical_not(params.mask)] == 0), "outside mask b values not zero"
 
-    def __cache_jits(self):
-        start = timer()
-        rng_key = random.PRNGKey(0)
-        for n in range(180, 200):
-            rng_key, key = random.split(rng_key)
-            sources_x, sources_y, sources_b = random_sources(key, n)
-            params = ParameterSample(
-                sources_x=sources_x,
-                sources_y=sources_y,
-                sources_b=sources_b,
-                mu=200
-            )
-            for move in MOVES:
-                self.__proposal(key, params, move)
-        end = timer()
-        print("cache jits time:", end - start)
-
-
-    def __init_params(self, rng_key):
+    @staticmethod
+    def init_params(rng_key):
         sub_key, sub_key_2 = random.split(rng_key, 2)
         mu_init = np.exp(random.uniform(sub_key, minval=np.log(N_MIN), maxval=np.log(N_MAX)))
-        print(mu_init)
         n_init = nprand.poisson(mu_init)
         sources_x_init, sources_y_init, sources_b_init = random_sources(sub_key_2, n_init)
-        return ParameterSample(sources_x_init, sources_y_init, sources_b_init, mu_init)
+        pad = np.zeros(N_MAX - n_init)
+        return ParameterSample(
+            sources_x=np.hstack((sources_x_init, pad)),
+            sources_y=np.hstack((sources_y_init, pad)),
+            sources_b=np.hstack((sources_b_init, pad)),
+            mask=(np.arange(N_MAX) < n_init),
+            mu=mu_init,
+            n=n_init
+        )
 
     def __new_move_stats(self):
         move_stats = OrderedDict()
@@ -113,95 +111,109 @@ class NuSTARSampler:
         self.move_stats[move_type][ZERO_MOVES] += zero_alpha
         self.move_stats[move_type][INF_MOVES] += inf_alpha
 
-    def __get_move_type(self):
-        self.rng_key, key1, key2, key3 = random.split(self.rng_key, 4)
-        r = random.uniform(key1, minval=0, maxval=1)
-        if r < self.hyper_rate:
-            return HYPER
-
-        elif r < (self.jump_rate + self.hyper_rate):
-            split_merge = random.uniform(key2, minval=0, maxval=1) < 0.5
-            up = random.uniform(key3, minval=0, maxval=1) < 0.5
-            if split_merge:
-                if up:
-                    return SPLIT
-                else:
-                    return MERGE
-            else:
-                if up:
-                    return BIRTH
-                else:
-                    return DEATH
-
-        return NORMAL
+    @staticmethod
+    @jit
+    def __get_move_type(rng_key, jump_rate, hyper_rate):
+        normal_rate = 1 - jump_rate - hyper_rate
+        jump_p = jump_rate / 4
+        logits = np.log(np.array([normal_rate, jump_p, jump_p, jump_p, jump_p, hyper_rate]))
+        return random.categorical(rng_key, logits)
 
     @staticmethod
     @jit
     def birth(rng_key, params):
         source_x, source_y, source_b = random_source(rng_key)
-        log_proposal_ratio = - (2 * np.log(XY_MAX - XY_MIN) + np.log(B_MAX - B_MIN))
+        log_proposal_ratio = (2 * np.log(XY_MAX - XY_MIN) + np.log(B_MAX - B_MIN))
+        mask_new_source = np.arange(N_MAX) == params.n
         sample_new = ParameterSample(
-            sources_x=np.hstack((params.sources_x, source_x)),
-            sources_y=np.hstack((params.sources_y, source_y)),
-            sources_b=np.hstack((params.sources_b, source_b)),
-            mu=params.mu
+            sources_x=(params.sources_x + mask_new_source * source_x),
+            sources_y=(params.sources_y + mask_new_source * source_y),
+            sources_b=(params.sources_b + mask_new_source * source_b),
+            mask=(np.arange(N_MAX) < (params.n + 1)),
+            mu=params.mu,
+            n=(params.n + 1)
         )
         return sample_new, log_proposal_ratio
 
     @staticmethod
+    def remove_and_shift(arr, i_remove):
+        unmoved = arr * (np.arange(arr.shape[0]) < i_remove)
+        to_shift = arr * (np.arange(arr.shape[0]) > i_remove)
+        rolled_left = np.roll(to_shift, -1)
+        return unmoved + rolled_left
+
+    @staticmethod
     @jit
     def death(rng_key, params):
-        n = params.sources_x.shape[0]
-        i_source = random.randint(rng_key, shape=(), minval=0, maxval=2)
-        log_proposal_ratio = (2 * np.log(XY_MAX - XY_MIN) + np.log(B_MAX - B_MIN))
-        indices = np.arange(n - 1) + (np.arange(n - 1) >= i_source)
+        i_source = random.randint(rng_key, shape=(), minval=0, maxval=params.n)
+        log_proposal_ratio = -(2 * np.log(XY_MAX - XY_MIN) + np.log(B_MAX - B_MIN))
         sample_new = ParameterSample(
-            sources_x=params.sources_x[indices],
-            sources_y=params.sources_y[indices],
-            sources_b=params.sources_b[indices],
-            mu=params.mu
+            sources_x=NuSTARSampler.remove_and_shift(params.sources_x, i_source),
+            sources_y=NuSTARSampler.remove_and_shift(params.sources_y, i_source),
+            sources_b=NuSTARSampler.remove_and_shift(params.sources_b, i_source),
+            mask=(np.arange(N_MAX) < (params.n - 1)),
+            mu=params.mu,
+            n=(params.n - 1)
         )
         return sample_new, log_proposal_ratio
+
+    @staticmethod
+    def utr_idx(N, i, j):
+        return N * i - (i * (i + 1)) // 2 + (j - i - 1)
 
     @staticmethod
     @jit
     def distance_distribution(params):
         def distance(i, j):
-            return (
+            is_real_pair = (j != 0)
+            d = (
                 (params.sources_x[i] - params.sources_x[j]) ** 2 +
                 (params.sources_y[i] - params.sources_y[j]) ** 2
             )
+            return np.where(is_real_pair, 1.0/d, 0)
         n = params.sources_x.shape[0]
         sources_one, sources_two = np.triu_indices(n, 1)
-        pairwise_distances = vmap(distance, in_axes=(0, 0))(sources_one, sources_two)
+        sources_two_mask = sources_two * (sources_two < params.n)  # set the padded indices to zero
+        pairwise_distances = vmap(distance, in_axes=(0, 0))(sources_one, sources_two_mask)
         distance_dist = pairwise_distances/(np.sum(pairwise_distances))
         return np.vstack((sources_one, sources_two, distance_dist)).T
 
     @staticmethod
     @jit
     def split(rng_key, params, proposal_width_split):
-        n = params.sources_x.shape[0]
-        sigma_split = proposal_width_split * PSF_PIXEL_SIZE * np.sqrt(1.0/n)
+        sigma_split = proposal_width_split * PSF_PIXEL_SIZE * np.sqrt(1.0/params.n)
         key1, key2, key3 = random.split(rng_key, 3)
-        i_source = random.randint(key1, shape=(), minval=0, maxval=n)
+        i_source = random.randint(key1, shape=(), minval=0, maxval=params.n)
         alpha = random.uniform(key2, minval=0, maxval=1)
         q_x, q_y = random.normal(key3, shape=(2,)) * sigma_split
         x, y, b = params.sources_x[i_source], params.sources_y[i_source], params.sources_b[i_source]
-        new_x = [x + q_x/2, x - q_x/2]
-        new_y = [y + q_y/2, y - q_y/2]
-        new_b = [b * alpha, b * (1-alpha)]
-        indices = np.arange(n - 1) + (np.arange(n - 1) >= i_source)
+        new_x1, new_x2 = x + q_x/2, x - q_x/2
+        new_y1, new_y2 = y + q_y/2, y - q_y/2
+        new_b1, new_b2 = b * alpha, b * (1-alpha)
+
+        def split_padded_sources(arr, i_remove, n, new1, new2):
+            source_removed = NuSTARSampler.remove_and_shift(arr, i_remove)
+            mask_new1 = np.arange(N_MAX) == (n-1)
+            mask_new2 = np.arange(N_MAX) == n
+            return source_removed + new1 * mask_new1 + new2 * mask_new2
+
         sample_new = ParameterSample(
-            sources_x=np.hstack((params.sources_x[indices], new_x)),
-            sources_y=np.hstack((params.sources_y[indices], new_y)),
-            sources_b=np.hstack((params.sources_b[indices], new_b)),
-            mu=params.mu
+            sources_x=split_padded_sources(params.sources_x, i_source, params.n, new_x1, new_x2),
+            sources_y=split_padded_sources(params.sources_y, i_source, params.n, new_y1, new_y2),
+            sources_b=split_padded_sources(params.sources_b, i_source, params.n, new_b1, new_b2),
+            mask=(np.arange(N_MAX) < (params.n + 1)),
+            mu=params.mu,
+            n=(params.n + 1)
         )
+        # sum_0, sum_new = np.sum(params.sources_b), np.sum(sample_new.sources_b)
+        # assert np.isclose(sum_0, sum_new), f"split brightness not conserved, {sum_0}, {sum_new}"
         # full proposal ratio: p(inverse_merge) / p(split) * |J| = b
         distance_dist = NuSTARSampler.distance_distribution(sample_new)
-        log_p_merge = np.log(distance_dist[-1][2])  # new sources will be last pair in the distance distribution
+        pair_idx = NuSTARSampler.utr_idx(N_MAX, params.n-1, params.n)
+
+        log_p_merge = np.log(distance_dist[pair_idx][2])  # new sources will be last pair in the distance distribution
         log_p_q = scipy.stats.norm.logpdf(q_x, scale=sigma_split) + scipy.stats.norm.logpdf(q_y, scale=sigma_split)
-        log_p_split = log_p_q - np.log(n)  # p(q) * 1/n for choice of source
+        log_p_split = log_p_q - np.log(params.n)  # p(q) * 1/n for choice of source
         log_proposal_ratio = log_p_merge - log_p_split + np.log(b)
         return sample_new, log_proposal_ratio
 
@@ -209,26 +221,37 @@ class NuSTARSampler:
     @jit
     def merge(rng_key, params, proposal_width_split):
         distance_dist = NuSTARSampler.distance_distribution(params)
-        cumulative_dist = np.cumsum(distance_dist[:, 2])
-        v = random.uniform(rng_key, minval=0, maxval=1)
-        i_pair = np.sum(np.less(cumulative_dist, v))
+        logits = np.log(distance_dist.T[2])
+        i_pair = random.categorical(rng_key, logits)
         i_source, j_source, p_merge = distance_dist[i_pair]
         i_source, j_source = i_source.astype(np.int32), j_source.astype(np.int32)
+        # assert i_source < params.n, "chose padded source i from distance distribution"
+        # assert j_source < params.n, "chose padded source j from distance distribution"
+        # assert i_source < j_source, "source j merge less than source i"
         x_i, y_i, b_i = params.sources_x[i_source], params.sources_y[i_source], params.sources_b[i_source]
         x_j, y_j, b_j = params.sources_x[j_source], params.sources_y[j_source], params.sources_b[j_source]
         q_x, q_y = (x_i - x_j), (y_i - y_j)
         x_new, y_new = (x_i + x_j)/2, (y_i + y_j)/2
         b_new = b_i + b_j
-        n = params.sources_x.shape[0]
-        indices = np.arange(n-2) + (np.arange(n-2) >= i_source) + ((np.arange(n-2) + 1) >= j_source)
+
+        def merge_padded_sources(arr, i_remove, j_remove, n, new):
+            source_j_removed = NuSTARSampler.remove_and_shift(arr, j_remove)  # j > i, so j removed first
+            sources_removed = NuSTARSampler.remove_and_shift(source_j_removed, i_remove)
+            mask_new = np.arange(N_MAX) == (n - 2)
+            return sources_removed + new * mask_new
+
         sample_new = ParameterSample(
-            sources_x=np.hstack((params.sources_x[indices], x_new)),
-            sources_y=np.hstack((params.sources_y[indices], y_new)),
-            sources_b=np.hstack((params.sources_b[indices], b_new)),
-            mu=params.mu
+            sources_x=merge_padded_sources(params.sources_x, i_source, j_source, params.n, x_new),
+            sources_y=merge_padded_sources(params.sources_y, i_source, j_source, params.n, y_new),
+            sources_b=merge_padded_sources(params.sources_b, i_source, j_source, params.n, b_new),
+            mask=(np.arange(N_MAX) < (params.n - 1)),
+            mu=params.mu,
+            n=(params.n - 1)
         )
+        # sum_0, sum_new = np.sum(params.sources_b), np.sum(sample_new.sources_b)
+        # assert np.isclose(sum_0, sum_new), f"merge brightness not conserved, {sum_0}, {sum_new}, {b_new}, {b_i}, {b_j}"
         # full proposal ratio: p(inverse_split) / p(merge) * 1/|J| = 1/b
-        new_n = sample_new.sources_x.shape[0]
+        new_n = sample_new.n
         sigma_split = proposal_width_split * PSF_PIXEL_SIZE * np.sqrt(1.0 / new_n)
         log_p_q = scipy.stats.norm.logpdf(q_x, scale=sigma_split) + scipy.stats.norm.logpdf(q_y, scale=sigma_split)
         log_p_split = log_p_q - np.log(new_n)
@@ -255,19 +278,18 @@ class NuSTARSampler:
     def __split_merge(tup_args):
         rng_key, params, move_type, proposal_width_split = tup_args
         up = (move_type == SPLIT)
-        split_fn = lambda args: NuSTARSampler.split(*args)
-        merge_fn = lambda args: NuSTARSampler.split(*args)
         sample_new, log_proposal_ratio = lax.cond(
             up,
             (rng_key, params, proposal_width_split),
-            split_fn,
+            lambda args: NuSTARSampler.split(*args),
             (rng_key, params, proposal_width_split),
-            merge_fn
+            lambda args: NuSTARSampler.merge(*args)
         )
         return sample_new, log_proposal_ratio
 
     @staticmethod
-    def __cond_jump_proposal(rng_key, params, move_type, proposal_width_split):
+    def __jump_proposal(tup_args):
+        rng_key, params, move_type, proposal_width_split = tup_args
         birth_death = ((move_type == BIRTH) | (move_type == DEATH))
         sample_new, log_proposal_ratio = lax.cond(
             birth_death,
@@ -279,83 +301,180 @@ class NuSTARSampler:
         return sample_new, log_proposal_ratio
 
     @staticmethod
-    def __jump_proposal(rng_key, params, move_type, proposal_width_split):
-        if move_type == Move.BIRTH:
-            start = timer()
-            sample_new, log_proposal_ratio = NuSTARSampler.birth(rng_key, params)
-            end = timer()
-            print("birth time", end - start)
-        elif move_type == Move.DEATH:
-            start = timer()
-            sample_new, log_proposal_ratio = NuSTARSampler.death(rng_key, params)
-            end = timer()
-            print("deatg time", end - start)
-        elif move_type == Move.SPLIT:
-            start = timer()
-            sample_new, log_proposal_ratio = NuSTARSampler.split(rng_key, params, proposal_width_split)
-            end = timer()
-            print("split time", end - start)
-        else:
-            start = timer()
-            sample_new, log_proposal_ratio = NuSTARSampler.merge(rng_key, params, proposal_width_split)
-            end = timer()
-            print("merge time", end - start)
+    @jit
+    def normal_proposal(rng_key, params, proposal_width_xy, proposal_width_b):
+        key1, key2, key3 = random.split(rng_key, 3)
+        sigma_xy = proposal_width_xy * PSF_PIXEL_SIZE * np.sqrt(1.0/params.n)
+        sigma_b = proposal_width_b * np.sqrt(1.0/params.n)
+        q_x = random.normal(key1, shape=(N_MAX,)) * sigma_xy
+        q_y = random.normal(key2, shape=(N_MAX,)) * sigma_xy
+        q_b = random.normal(key3, shape=(N_MAX,)) * sigma_b
+        sample_new = ParameterSample(
+            sources_x=params.sources_x + q_x * params.mask,
+            sources_y=params.sources_y + q_y * params.mask,
+            sources_b=params.sources_b + q_b * params.mask,
+            mask=params.mask,
+            mu=params.mu,
+            n=params.n
+        )
+        log_proposal_ratio = 0.0
         return sample_new, log_proposal_ratio
 
     @staticmethod
     @jit
-    def normal_proposal(rng_key, params, proposal_width_xy, proposal_width_b):
-        key1, key2, key3 = random.split(rng_key, 3)
-        n = params.sources_x.shape[0]
-        sigma_xy = proposal_width_xy * PSF_PIXEL_SIZE * np.sqrt(1.0/n)
-        sigma_b = proposal_width_b * np.sqrt(1.0/n)
-        q_x = random.normal(key1, shape=(n,)) * sigma_xy
-        q_y = random.normal(key2, shape=(n,)) * sigma_xy
-        q_b = random.normal(key3, shape=(n,)) * sigma_b
-        return ParameterSample(
-            sources_x=params.sources_x + q_x,
-            sources_y=params.sources_y + q_y,
-            sources_b=params.sources_b + q_b,
-            mu=params.mu
-        )
-
-    @staticmethod
-    @jit
     def hyper_proposal(rng_key, params, proposal_width_mu):
-        n = params.sources_x.shape[0]
-        return ParameterSample(
+        sample_new = ParameterSample(
             sources_x=params.sources_x,
             sources_y=params.sources_y,
             sources_b=params.sources_b,
-            mu=params.mu + (random.normal(rng_key) * proposal_width_mu * np.sqrt(n))
+            mask=params.mask,
+            mu=params.mu + (random.normal(rng_key) * proposal_width_mu * np.sqrt(params.n)),
+            n=params.n
         )
+        log_proposal_ratio = 0.0
+        return sample_new, log_proposal_ratio
 
+    @staticmethod
+    def __normal_hyper(tup_args):
+        rng_key, params, move_type, proposal_width_xy, proposal_width_b, proposal_width_mu = tup_args
+        normal = (move_type == NORMAL)
+        sample_new, log_proposal_ratio = lax.cond(
+            normal,
+            (rng_key, params, proposal_width_xy, proposal_width_b),
+            lambda args: NuSTARSampler.normal_proposal(*args),
+            (rng_key, params, proposal_width_mu),
+            lambda args: NuSTARSampler.hyper_proposal(*args)
+        )
+        return sample_new, log_proposal_ratio
 
+    @staticmethod
+    @partial(jit, static_argnums=(2,3,4,5,6))
+    def __cond_proposal(rng_key, params, model, proposal_width_xy, proposal_width_b, proposal_width_split, proposal_width_mu, move_type):
+        jump = ((move_type != NORMAL) & (move_type != HYPER))
+        # start = timer()
+        sample_new, log_proposal_ratio = lax.cond(
+            jump,
+            (rng_key, params, move_type, proposal_width_split),
+            NuSTARSampler.__jump_proposal,
+            (rng_key, params, move_type, proposal_width_xy, proposal_width_b, proposal_width_mu),
+            NuSTARSampler.__normal_hyper
+        )
+        sample_log_joint = model.log_joint(sample_new)
+        # end = timer()
+        # if move_type == MERGE:
+        #     print("merge time", end - start)
+        # if move_type == SPLIT:
+        #     print("SPLIT time", end - start)
+        # if move_type == BIRTH:
+        #     print("birth time", end - start)
+        # if move_type == DEATH:
+        #     print("DEATH time", end - start)
+        # if move_type == NORMAL:
+        #     print("NORMAL time", end - start)
+        # if move_type == HYPER:
+        #     print("HYPER time", end - start)
+        return sample_new, log_proposal_ratio, sample_log_joint
 
-    def __proposal(self, key, params, move_type):
-        if move_type == NORMAL:
-            sample_new = NuSTARSampler.normal_proposal(key, params, self.proposal_width_xy, self.proposal_width_b)
-            log_proposal_ratio = 0.0
-            log_joint = self.model.log_joint(sample_new)
-        elif move_type == HYPER:
-            sample_new = NuSTARSampler.hyper_proposal(key, params, self.proposal_width_mu)
-            log_proposal_ratio = 0.0
-            log_joint = (
-                    self.log_joint_head -
-                    NuSTARModel.log_prior_mu(params.mu) +
-                    NuSTARModel.log_prior_mu(sample_new.mu) -
-                    NuSTARModel.log_prior_n(params.mu, params.sources_x.shape[0]) +
-                    NuSTARModel.log_prior_n(sample_new.mu, sample_new.sources_x.shape[0])
+    @partial(jit, static_argnums=(0, 2))
+    def sample_jit(self, rng_key, samples):
+
+        @jit
+        def pack_sample(params):
+            return np.array(
+                [
+                    params.sources_x,
+                    params.sources_y,
+                    params.sources_b,
+                    params.mask * params.mu
+                ]
             )
-        else:
-            # Jump move
-            sample_new, log_proposal_ratio = NuSTARSampler.__cond_jump_proposal(key, params, move_type, self.proposal_width_split)
-            log_joint = self.model.log_joint(sample_new)
-            # log_joint = -np.inf
+        @jit
+        def unpack_sample(arr):
+            return ParameterSample(
+                sources_x=arr[0],
+                sources_y=arr[1],
+                sources_b=arr[2],
+                mask=(np.not_equal(arr[3], 0)),
+                mu=arr[3][0],
+                n=np.sum(np.not_equal(arr[3], 0))
+            )
 
-        return sample_new, log_proposal_ratio, log_joint
+        def sampler_kernel(i, key, head, log_joint, chain, accepted, moves, alphas):
+            key1, key2, key3 = random.split(key, 3)
+            move_type = NuSTARSampler.__get_move_type(key1, self.jump_rate, self.hyper_rate)
+            sample_new, log_proposal_ratio, sample_log_joint = NuSTARSampler.__cond_proposal(
+                key2, head, self.model,  self.proposal_width_xy, self.proposal_width_b, self.proposal_width_split, self.proposal_width_mu, move_type
+            )
+            log_alpha = sample_log_joint - log_joint + log_proposal_ratio
+            accept = np.log(random.uniform(key3, minval=0, maxval=1)) < log_alpha
+            accepted += accept
+            new_head = lax.cond(accept, sample_new, lambda x: x, head, lambda x: x)
+            new_log_joint = np.where(accept, sample_log_joint, log_joint)
+            chain = index_update(chain, i, pack_sample(new_head))
+            moves = index_update(moves, i, move_type)
+            alphas = index_update(alphas, i, log_alpha)
+            return new_head, new_log_joint, chain, accepted, moves, alphas
+
+        def next_state(i, state):
+            key, head, log_joint, chain, accepted, moves, alphas = state
+            # key, head, log_joint = state
+            _, key = random.split(key)
+            sample_new, log_joint_new, chain_next, accepted, moves, alphas = sampler_kernel(i, key, head, log_joint, chain, accepted, moves, alphas)
+            # sample_new, log_joint_new = sampler_kernel(key, head, log_joint)
+            return key, sample_new, log_joint_new, chain_next, accepted, moves, alphas
+            # return key, sample_new, log_joint_new
+
+        all_samples = np.zeros((samples, 4, N_MAX))
+        moves = np.zeros(samples)
+        log_alphas = np.zeros(samples)
+        sample_init = self.head
+        accepted = 0
+        state_init = (rng_key, sample_init, self.log_joint_head, all_samples, accepted, moves, log_alphas)
+        # state_init = (rng_key, sample_init, self.log_joint_head)
+        rng_key, final_sample, final_log_joint, posterior, total_accepted, all_moves, alphas = lax.fori_loop(0, samples, next_state, state_init)
+        # rng_key, final_sample, final_log_joint = lax.fori_loop(0, samples, next_state, state_init)
+        # state = state_init
+        # for i in tqdm(range(samples)):
+        #     state = next_state(i, state)
+        # rng_key, final_sample, final_log_joint = state
+        # rng_key, final_sample, final_log_joint, posterior, total_accepted, all_moves, alphas = state
+        return final_sample, final_log_joint, posterior, total_accepted, all_moves, alphas
+        # return final_sample, final_log_joint
 
     def sample(self):
+        chains = []
+        t = tqdm(total=self.samples)
+        for i in range(self.samples//1000):
+            self.rng_key, key = random.split(self.rng_key)
+            out = self.sample_jit(key, 1000)
+            out[2].block_until_ready()
+            self.head, self.log_joint_head = out[0], out[1]
+            chains.append(out[2])
+            t.update(1000)
+        return chains[-1]
+
+    def sample3(self):
+        # self.head, self.log_joint_head, self.chain, accepted, moves, alphas = self.sample_jit()
+        print("samples:", self.samples)
+        key1, key2, key3 = random.split(self.rng_key, 3)
+        start = timer()
+        out = self.sample_jit(key1, self.samples)
+        out[2].block_until_ready()
+        # print("accepted:", out[3])
+        # print("time1:", timer() - start)
+        # start = timer()
+        # out = self.sample_jit(key2, self.samples)
+        # out[2].block_until_ready()
+        # print("accepted:", out[3])
+        # print("time2:", timer() - start)
+        # start = timer()
+        # out = self.sample_jit(key3, self.samples)
+        # out[2].block_until_ready()
+        # print("accepted:", out[3])
+        # print("time3:", timer() - start)
+        return out[2]
+
+    def sample2(self):
         accepted_recently = 0
         for i in tqdm(range(self.samples)):
             self.rng_key, sub_key = random.split(self.rng_key)
@@ -364,12 +483,10 @@ class NuSTARSampler:
                 accepted_recently = 0
             move_type = self.__get_move_type()
             self.rng_key, key = random.split(self.rng_key)
-            sample_new, log_proposal_ratio, sample_log_joint = self.__proposal(key, self.head, move_type)
+            sample_new, log_proposal_ratio, sample_log_joint = self.__cond_proposal(key, self.head, move_type)
             log_alpha = sample_log_joint - self.log_joint_head + log_proposal_ratio
             accept = np.log(random.uniform(sub_key, minval=0, maxval=1)) < log_alpha
             if accept:
-                # if move_type != Move.HYPER and move_type != Move.NORMAL:
-                    # print(sample_new.sources_x.shape)
                 self.head = sample_new
                 self.log_joint_head = sample_log_joint
                 self.accepted += 1
@@ -393,3 +510,19 @@ class NuSTARSampler:
                 N_SOURCES_COUNTS: self.n_sources_counts
             }
         )
+
+
+# key = random.PRNGKey(0)
+# for i in range(10):
+#     startl = timer()
+#     key, sub_key = random.split(key)
+#     params = NuSTARSampler.init_params(sub_key)
+#     # print(params.n)
+#     start = timer()
+#     params, r = NuSTARSampler.merge(sub_key, params, PROPOSAL_WIDTH_SPLIT)
+#     params.sources_x.block_until_ready()
+#     end = timer()
+#     print("time move:", end - start)
+#     # print(np.sum(normal.sources_x != 0))
+#     endl = timer()
+#     print()
