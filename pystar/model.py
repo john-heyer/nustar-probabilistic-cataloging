@@ -1,24 +1,22 @@
-from nustar_constants import *
-from mcmc_configs import *
+from collections import namedtuple
+from functools import partial
 
 import jax.numpy as np
-from jax import grad, jit, vmap, random, scipy
+import numpy as onp
+from jax import jit, vmap, scipy
 
-from functools import partial
-from collections import namedtuple
+from mcmc_configs import *
+from nustar_constants import *
 
-import numpy.random as nprand  # for drawing poisson random numbers
-nprand.seed(1)
+onp.random.seed(1)  # for drawing poisson numbers
 
 ParameterSample = namedtuple('ParameterSample', ['sources_x', 'sources_y', 'sources_b', 'mask', 'mu', 'n'])
 
 # TODO:
 # [] remove mask from parameter sample and construct based on n
 # [] make non-normal moves likelihoods constant time
-# [] clean code statics etc.
-# [] make move enum
 # [] paralellize
-# [] constants for strings clean
+# [] add new PSF
 
 
 class NuSTARModel:
@@ -59,7 +57,7 @@ class NuSTARModel:
 	def sample_image(mean_emission_map):
 		# NOTE: Cannot draw Poisson numbers using JAX
 		return np.array(
-			[[nprand.poisson(lam) for lam in row] for row in mean_emission_map]
+			[[onp.random.poisson(lam) for lam in row] for row in mean_emission_map]
 		)
 
 	@staticmethod
@@ -108,7 +106,9 @@ class NuSTARModel:
 		return (
 				NuSTARModel.log_prior_mu(params.mu) +
 				NuSTARModel.log_prior_n(params.mu, params.n) +
-				NuSTARModel.log_prior_sources(params.sources_x, params.sources_y, params.sources_b, params.mask, params.n)
+				NuSTARModel.log_prior_sources(
+					params.sources_x, params.sources_y, params.sources_b, params.mask, params.n
+				)
 		)
 
 	@partial(jit, static_argnums=(0,))

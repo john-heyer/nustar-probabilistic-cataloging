@@ -1,8 +1,9 @@
-from nustar_constants import *
-from mcmc_configs import *
+import pickle
 
-import jax.numpy as np
-from jax import grad, jit, vmap, random, scipy
+import numpy as np
+from jax import jit, random
+
+from nustar_constants import *
 
 
 def random_sources(rng_key, n):
@@ -22,5 +23,8 @@ def random_source(rng_key):
     return source_x, source_y, source_b
 
 
-def write_results(file):
-    pass
+def write_results(sources_x, sources_y, sources_b, posterior_sources, stats, posterior_file, stats_file):
+    gt = np.array([sources_x, sources_y, sources_b])  # shape = (3 x n_sources_truth)
+    np.savez(posterior_file, ground_truth=gt, posterior=posterior_sources)
+    with open(stats_file, 'wb') as sf:
+        pickle.dump(stats, sf)

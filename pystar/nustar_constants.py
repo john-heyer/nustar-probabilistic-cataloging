@@ -11,14 +11,34 @@ XY_MIN = -1.1 * PSF_IMAGE_LENGTH/2.0 * PSF_PIXEL_SIZE
 XY_MAX = - XY_MIN
 B_MIN, B_MAX = 1, 1096.6331584284585
 
-# strings
-PROPOSED = "proposed"
-ACCEPTED = "accepted"
-ZERO_MOVES = "zero A moves"
-INF_MOVES = "inf A moves"
+# move definitions
+NORMAL = 0
+BIRTH = 1
+DEATH = 2
+SPLIT = 3
+MERGE = 4
+HYPER = 5
 
-# TODO: Fix string conventions for consistency, left for compatibility
+MOVES = {
+    NORMAL: 'normal move',
+    BIRTH: 'birth move',
+    DEATH: 'death move',
+    SPLIT: 'split move',
+    MERGE: 'merge move',
+    HYPER: 'hyper move'
+}
+
+# strings for recording stats
 ACCEPTANCE_RATE = "acceptance rate"
 STATS_BY_MOVE = "stats by move type"
-N_SOURCES_COUNTS = "n_sources_counts"
-ACCEPTANCE_RATES = "acceptance_rates"
+N_POSTERIOR = "n posterior"
+MU_POSTERIOR = "mu posterior"
+BATCH_ACCEPTANCE_RATES = "acceptance rates"
+
+# per move type strings
+PROPOSED = "proposed"
+ACCEPTED = "accepted"
+BURN_IN = "burn in"
+BATCH_SIZE = "batch size"
+ZERO_MOVES = "zero alpha moves"
+INF_MOVES = "inf alpha moves"
