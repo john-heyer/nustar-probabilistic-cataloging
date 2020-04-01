@@ -26,6 +26,6 @@ sampler.sample_with_burn_in()
 posterior = sampler.get_posterior_sources()
 stats = sampler.get_stats()
 
-print("Writing results to disk")
+print("Writing results to disk...")
 write_results(sources_xt, sources_yt, sources_bt, posterior, stats, POSTERIOR_FILE, STATS_FILE)
 print("DONE")

@@ -17,8 +17,8 @@ PROPOSAL_WIDTH_MU = 1.0
 PROPOSAL_WIDTH_SPLIT = 200
 
 # will produce floor(SAMPLES/SAMPLE_BATCH_SIZE) * SAMPLE_BATCH_SIZE samples
-SAMPLES = 10000
-BURN_IN_STEPS = 100000
+SAMPLES = 2000
+BURN_IN_STEPS = 1000
 SAMPLE_BATCH_SIZE = 1000
 
 # alternative move rates
@@ -30,7 +30,7 @@ CHECK_CONVERGENCE = False
 N_KEEP = 10
 
 # file names to save results
-EXPERIMENT_DIR = "experiments/normal/"
+EXPERIMENT_DIR = "experiments/testing/"
 os.makedirs(os.path.join(os.getcwd(), EXPERIMENT_DIR), exist_ok=True)  # mkdir if doesn't exist
 POSTERIOR_FILE = EXPERIMENT_DIR + "posterior.npz"
 STATS_FILE = EXPERIMENT_DIR + "stats.dictionary"

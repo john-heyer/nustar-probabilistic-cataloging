@@ -13,6 +13,7 @@ onp.random.seed(1)  # for drawing poisson numbers
 ParameterSample = namedtuple('ParameterSample', ['sources_x', 'sources_y', 'sources_b', 'mask', 'mu', 'n'])
 
 # TODO:
+# [] inspect zeros and infs
 # [] remove mask from parameter sample and construct based on n
 # [] make non-normal moves likelihoods constant time
 # [] parallelize

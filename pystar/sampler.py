@@ -1,5 +1,6 @@
 import sys
 from collections import OrderedDict, Counter
+from functools import partial
 
 import jax.numpy as np
 import numpy as onp
@@ -13,9 +14,6 @@ from nustar_constants import *
 from utils import random_sources, random_source
 
 onp.random.seed(1)  # for drawing poisson numbers
-
-from functools import partial
-from timeit import default_timer as timer
 
 
 class NuSTARSampler:
@@ -393,7 +391,7 @@ class NuSTARSampler:
         alpha_arr = np.array(alphas)
 
         @partial(jit, static_argnums=(0, 1))
-        def compile_stats(batch_size, n_moves, acceptances, moves, alphas):
+        def compile_stats(batch_size, n_moves, moves, acceptances, alphas):
             batch_accepts = np.sum(acceptances, axis=1) / batch_size
             all_acceptances = np.hstack(acceptances)
             all_moves = np.hstack(moves)
@@ -410,10 +408,10 @@ class NuSTARSampler:
                 )
 
             all_move_stats = vmap(stats_by_move, in_axes=(0, None, None, None))
-            move_stats = all_move_stats(np.arange(n_moves), all_acceptances, all_moves, all_alphas)
+            move_stats = all_move_stats(np.arange(n_moves), all_moves, all_acceptances, all_alphas)
 
             # return total proposals, acceptances, acceptances by batch, stats by move
-            return all_moves.shape[0], np.sum(all_acceptances).astype(np.int32), batch_accepts, move_stats
+            return all_moves.shape[0], np.sum(all_acceptances), batch_accepts, move_stats
 
         total_proposals, total_accepts, batch_acceptance_rates, move_stats = compile_stats(
             self.sample_batch_size, len(MOVES), moves_arr, acceptances_arr, alpha_arr
@@ -441,7 +439,6 @@ class NuSTARSampler:
 
     def run_sampler(self, burn_in=False):
         # Note: can be used to continue sampling
-        start = timer()
         if burn_in:
             batches = self.burn_in_steps // self.sample_batch_size
             print(f"Burning in for {batches * self.sample_batch_size} steps:")
@@ -467,17 +464,11 @@ class NuSTARSampler:
             all_alphas.append(alphas)
             t.update(self.sample_batch_size)
         t.close()
-        end = timer()
-        print("time sampling:", end - start)
         print("Recording stats from run...")
         self.__collect_stats(acceptances, all_moves, all_alphas)
-        end2 = timer()
-        print("time writing stats:", end2 - end)
         if not burn_in:
             print("Gathering posterior samples...")
             self.__combine_samples(chains, all_mus, all_ns)
-            end3 = timer()
-            print("time combining samples:", end3 - end2)
 
     def get_posterior_sources(self):
         return self.source_posterior
