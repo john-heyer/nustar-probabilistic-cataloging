@@ -392,7 +392,7 @@ class NuSTARSampler:
         moves_arr = np.array(moves)
         alpha_arr = np.array(alphas)
 
-        @partial(jit, static_argnums=(0,1))
+        @partial(jit, static_argnums=(0, 1))
         def compile_stats(batch_size, n_moves, acceptances, moves, alphas):
             batch_accepts = np.sum(acceptances, axis=1) / batch_size
             all_acceptances = np.hstack(acceptances)
@@ -416,7 +416,7 @@ class NuSTARSampler:
             return all_moves.shape[0], np.sum(all_acceptances).astype(np.int32), batch_accepts, move_stats
 
         total_proposals, total_accepts, batch_acceptance_rates, move_stats = compile_stats(
-            self.sample_batch_size, len(MOVES), acceptances_arr, moves_arr, alpha_arr
+            self.sample_batch_size, len(MOVES), moves_arr, acceptances_arr, alpha_arr
         )
 
         proposals_by_move, accepts_by_move, zeros_by_move, infs_by_move = move_stats

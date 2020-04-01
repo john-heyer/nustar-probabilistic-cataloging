@@ -1,3 +1,5 @@
+import os
+
 # min and max number of allowable sources
 N_MIN = 100
 N_MAX = 400
@@ -15,8 +17,8 @@ PROPOSAL_WIDTH_MU = 1.0
 PROPOSAL_WIDTH_SPLIT = 200
 
 # will produce floor(SAMPLES/SAMPLE_BATCH_SIZE) * SAMPLE_BATCH_SIZE samples
-SAMPLES = 5000
-BURN_IN_STEPS = 1000
+SAMPLES = 10000
+BURN_IN_STEPS = 100000
 SAMPLE_BATCH_SIZE = 1000
 
 # alternative move rates
@@ -27,7 +29,8 @@ HYPER_RATE = .02
 CHECK_CONVERGENCE = False
 N_KEEP = 10
 
-# file names
-FILE_DESCRIPTOR = f"_{N_SOURCES_TRUTH}_truth_{SAMPLES}_samples"
-POSTERIOR_FILE = "posterior" + FILE_DESCRIPTOR + ".npz"
-STATS_FILE = "stats" + FILE_DESCRIPTOR + ".dictionary"
+# file names to save results
+EXPERIMENT_DIR = "experiments/normal/"
+os.makedirs(os.path.join(os.getcwd(), EXPERIMENT_DIR), exist_ok=True)  # mkdir if doesn't exist
+POSTERIOR_FILE = EXPERIMENT_DIR + "posterior.npz"
+STATS_FILE = EXPERIMENT_DIR + "stats.dictionary"

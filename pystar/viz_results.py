@@ -29,8 +29,6 @@ posterior_data = np.load(posterior_file)
 
 posterior = posterior_data["posterior"]
 ground_truth = posterior_data["ground_truth"]
-print(ground_truth.shape)
-print(posterior.shape)
 
 with open(stats_obj_file, "rb") as sf:
 	stats = pickle.load(sf)

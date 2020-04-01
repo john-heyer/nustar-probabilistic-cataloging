@@ -15,9 +15,10 @@ ParameterSample = namedtuple('ParameterSample', ['sources_x', 'sources_y', 'sour
 # TODO:
 # [] remove mask from parameter sample and construct based on n
 # [] make non-normal moves likelihoods constant time
-# [] paralellize
+# [] parallelize
 # [] add new PSF
-
+# [] update psrf
+# [] use logging
 
 class NuSTARModel:
 
