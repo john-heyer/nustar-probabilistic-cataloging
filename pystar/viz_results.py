@@ -76,7 +76,7 @@ p_b = p_b[p_b != 0]
 
 total_sources = np.sum([n * n_posterior[n] for n in n_posterior])
 
-assert len(p_x) == total_sources, f"size of posterior sources ({len(p_x)}) not consistent with N posterior total ({total_sources})"
+# assert len(p_x) == total_sources, f"size of posterior sources ({len(p_x)}) not consistent with N posterior total ({total_sources})"
 
 gt_x, gt_y, gt_b = ground_truth[0]/PSF_PIXEL_SIZE, ground_truth[1]/PSF_PIXEL_SIZE, ground_truth[2]
 p_x, p_y = p_x/PSF_PIXEL_SIZE, p_y/PSF_PIXEL_SIZE
@@ -95,7 +95,6 @@ plt.gca().add_patch(Rectangle((1.1*window_min,1.1*window_min),1.1*2*window_max,1
 plt.show()
 
 # plot histogram of mus
-
 plt.hist(x=list(mu_posterior.keys()), weights=list(mu_posterior.values()), bins=25, color='y', edgecolor='k')
 plt.title("Mu Posterior")
 plt.axvline(len(gt_x), color='k', linestyle='dashed', linewidth=1)

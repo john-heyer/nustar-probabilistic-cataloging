@@ -2,9 +2,10 @@ NUSTAR_IMAGE_LENGTH = 64
 PSF_IMAGE_LENGTH = 1300
 IM_SCALE = (1300**2)/(64**2)
 
-# In radians/pixel
+# in radians/pixel
 NUSTAR_PIXEL_SIZE = 5.5450564776903175e-05
 PSF_PIXEL_SIZE = 2.9793119397393605e-06
+RADIANS_PER_ARC_MINUTE = 0.000290888
 
 # prior boundaries
 XY_MIN = -1.1 * PSF_IMAGE_LENGTH/2.0 * PSF_PIXEL_SIZE
@@ -36,6 +37,7 @@ MU_POSTERIOR = "mu posterior"
 BATCH_ACCEPTANCE_RATES = "acceptance rates"
 
 # per move type strings
+DESCRIPTION = "description"
 PROPOSED = "proposed"
 ACCEPTED = "accepted"
 BURN_IN = "burn in"

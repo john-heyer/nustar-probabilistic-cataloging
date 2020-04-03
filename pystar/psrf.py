@@ -21,6 +21,7 @@ def compute_psrf(emission_maps):
 	R_hat = np.sqrt(variance_estimates / W)  # (64, 64)
 	return R_hat
 
+
 if len(sys.argv) > 1:
 	npz_file = sys.argv[1]
 	emission_maps = np.load(npz_file)

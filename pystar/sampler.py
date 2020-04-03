@@ -9,7 +9,7 @@ from jax.ops import index_update
 from tqdm import tqdm
 
 from mcmc_configs import *
-from model import ParameterSample
+from model import ParameterSample, NuSTARModel
 from nustar_constants import *
 from utils import random_sources, random_source
 
@@ -21,7 +21,7 @@ class NuSTARSampler:
     def __init__(
             self, model, rng_key, params_init=None, burn_in_steps=0, samples=10000, jump_rate=.1, hyper_rate=.02,
             proposal_width_xy=.75, proposal_width_b=2.0, proposal_width_mu=1.0, proposal_width_split=200,
-            sample_batch_size=1000
+            sample_batch_size=1000, description=""
     ):
         self.model = model
         self.rng_key = rng_key
@@ -33,6 +33,7 @@ class NuSTARSampler:
             self.head = params_init
         NuSTARSampler.check_parameter_invariants(self.head)
         self.log_joint_head = model.log_joint(self.head)
+        print(self.head.n)
 
         # sampler configs
         self.burn_in_steps = burn_in_steps
@@ -51,6 +52,7 @@ class NuSTARSampler:
         self.proposals = 0
         self.accepted = 0
         self.batch_acceptance_rates = []
+        self.description = description
 
         # posterior
         self.source_posterior = onp.zeros((0, 3, N_MAX))  # final shape should be (samples, 3, N_MAX)
@@ -99,7 +101,7 @@ class NuSTARSampler:
     def __get_move_type(self, rng_key):
         normal_rate = 1 - self.jump_rate - self.hyper_rate
         jump_p = self.jump_rate / 4
-        logits = np.log(np.array([normal_rate, jump_p, jump_p, jump_p, jump_p, self.hyper_rate]))
+        logits = np.log(np.array([normal_rate, 0*jump_p, 0*jump_p, 2*jump_p, 2*jump_p, self.hyper_rate]))
         return random.categorical(rng_key, logits)
 
     @partial(jit, static_argnums=(0,))
@@ -115,7 +117,7 @@ class NuSTARSampler:
             mu=params.mu,
             n=(params.n + 1)
         )
-        return sample_new, log_proposal_ratio
+        return sample_new, log_proposal_ratio #- np.log(sample_new.n)
 
     @staticmethod
     def remove_and_shift(arr, i_remove):
@@ -136,7 +138,7 @@ class NuSTARSampler:
             mu=params.mu,
             n=(params.n - 1)
         )
-        return sample_new, log_proposal_ratio
+        return sample_new, log_proposal_ratio #+ np.log(params.n)
 
     @staticmethod
     def utr_idx(N, i, j):
@@ -187,10 +189,14 @@ class NuSTARSampler:
         # full proposal ratio: p(inverse_merge) / p(split) * |J| = b
         distance_dist = NuSTARSampler.distance_distribution(sample_new)
         pair_idx = NuSTARSampler.utr_idx(N_MAX, params.n-1, params.n)
-
-        log_p_merge = np.log(distance_dist[pair_idx][2])  # new sources will be last pair in the distance distribution
+        n_c_2 = (sample_new.n ** 2 - sample_new.n) / 2
+        log_p_merge = np.log(2) #- np.log(n_c_2) #np.log(distance_dist[pair_idx][2])
         log_p_q = scipy.stats.norm.logpdf(q_x, scale=sigma_split) + scipy.stats.norm.logpdf(q_y, scale=sigma_split)
-        log_p_split = log_p_q - np.log(params.n)  # p(q) * 1/n for choice of source
+        # print('sigma split', sigma_split)
+        # print('qx, qy', q_x, q_y)
+        # print('log p q', log_p_q)
+        # print('log q 0', scipy.stats.norm.logpdf(0, scale=sigma_split))
+        log_p_split = log_p_q #- np.log(params.n)  # p(q) * 1/n for choice of source
         log_proposal_ratio = log_p_merge - log_p_split + np.log(b)
         return sample_new, log_proposal_ratio
 
@@ -198,7 +204,8 @@ class NuSTARSampler:
     def merge(self, rng_key, params):
         distance_dist = NuSTARSampler.distance_distribution(params)
         logits = np.log(distance_dist.T[2])
-        i_pair = random.categorical(rng_key, logits)
+        uniform_logits = np.where(logits == -np.inf, -np.inf, 1)
+        i_pair = random.categorical(rng_key, uniform_logits)
         i_source, j_source, p_merge = distance_dist[i_pair]
         i_source, j_source = i_source.astype(np.int32), j_source.astype(np.int32)
         x_i, y_i, b_i = params.sources_x[i_source], params.sources_y[i_source], params.sources_b[i_source]
@@ -225,8 +232,12 @@ class NuSTARSampler:
         new_n = sample_new.n
         sigma_split = self.proposal_width_split * PSF_PIXEL_SIZE * np.sqrt(1.0 / new_n)
         log_p_q = scipy.stats.norm.logpdf(q_x, scale=sigma_split) + scipy.stats.norm.logpdf(q_y, scale=sigma_split)
-        log_p_split = log_p_q - np.log(new_n)
-        log_p_merge = np.log(p_merge)
+        # print('sigma split', sigma_split)
+        # print('qx, qy', q_x, q_y)
+        # print('log p q', log_p_q)
+        log_p_split = log_p_q #- np.log(new_n)
+        n_c_2 = (params.n**2 - params.n)/2
+        log_p_merge = np.log(2) #- np.log(n_c_2) #np.log(p_merge)
         log_proposal_ratio = log_p_split - log_p_merge - np.log(b_new)
         return sample_new, log_proposal_ratio
 
@@ -476,6 +487,7 @@ class NuSTARSampler:
     def get_stats(self):
         return OrderedDict(
             {
+                DESCRIPTION: self.description,
                 PROPOSED: self.proposals,
                 ACCEPTED: self.accepted,
                 BURN_IN: self.burn_in_steps,
@@ -487,3 +499,36 @@ class NuSTARSampler:
                 MU_POSTERIOR: self.mu_posterior
             }
         )
+
+
+if __name__ == '__main__':
+    key = random.PRNGKey(0)
+    key, sub_key = random.split(key)
+
+    # generate ground truth observation
+    sources_xt, sources_yt, sources_bt = random_sources(sub_key, N_SOURCES_TRUTH)
+    mean_image = NuSTARModel.mean_emission_map(sources_xt, sources_yt, sources_bt)
+    observed_image = NuSTARModel.sample_image(mean_image)
+
+    pad = np.zeros(N_MAX - N_SOURCES_TRUTH)
+    params = ParameterSample(
+        sources_x=np.hstack((sources_xt, pad)),
+        sources_y=np.hstack((sources_yt, pad)),
+        sources_b=np.hstack((sources_bt, pad)),
+        mask=(np.arange(N_MAX) < N_SOURCES_TRUTH),
+        n=N_SOURCES_TRUTH,
+        mu=float(N_SOURCES_TRUTH),
+    )
+
+    model = NuSTARModel(observed_image)
+    sampler = NuSTARSampler(
+        model, key, burn_in_steps=BURN_IN_STEPS, samples=SAMPLES, jump_rate=JUMP_RATE, hyper_rate=HYPER_RATE,
+        proposal_width_xy=PROPOSAL_WIDTH_XY, proposal_width_b=PROPOSAL_WIDTH_B, proposal_width_mu=PROPOSAL_WIDTH_MU,
+        proposal_width_split=PROPOSAL_WIDTH_SPLIT, sample_batch_size=SAMPLE_BATCH_SIZE,
+    )
+    print('split')
+    new, ratio = sampler.split(key, params)
+    print(ratio)
+    print('merge')
+    new, ratio = sampler.merge(key, params)
+    print(ratio)
