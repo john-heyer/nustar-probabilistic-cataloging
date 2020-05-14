@@ -10,18 +10,18 @@ from nustar_constants import *
 
 parser = argparse.ArgumentParser(description='Visualize sampler results')
 parser.add_argument(
-	'stats_dir',
-	help='relative path to experiment directory containing a posterior npz file and pickled stats dictionary file'
+    'stats_dir',
+    help='relative path to experiment directory containing a posterior npz file and pickled stats dictionary file'
 )
 args = parser.parse_args()
 
 data_dir = os.path.join(os.getcwd(), args.stats_dir)
 posterior_file, stats_obj_file = None, None
 for file in os.listdir(data_dir):
-	if ".npz" in file:
-		posterior_file = os.path.join(data_dir, file)
-	else:
-		stats_obj_file = os.path.join(data_dir, file)
+    if ".npz" in file:
+        posterior_file = os.path.join(data_dir, file)
+    else:
+        stats_obj_file = os.path.join(data_dir, file)
 
 window_min, window_max = -PSF_IMAGE_LENGTH/2, PSF_IMAGE_LENGTH/2
 
@@ -31,7 +31,7 @@ posterior = posterior_data["posterior"]
 ground_truth = posterior_data["ground_truth"]
 
 with open(stats_obj_file, "rb") as sf:
-	stats = pickle.load(sf)
+    stats = pickle.load(sf)
 
 move_stats = stats.pop(STATS_BY_MOVE)
 n_posterior = stats.pop(N_POSTERIOR)
@@ -41,31 +41,36 @@ acceptance_rates = stats.pop(BATCH_ACCEPTANCE_RATES)
 print("\n======acceptance stats======")
 
 for stat in stats:
-	print(stat, ":", stats[stat])
+    print(stat, ":", stats[stat])
 
 for move in move_stats:
-	print(move)
-	proposed = 0
-	for move_stat in move_stats[move]:
-		print("\t", move_stat, ":", move_stats[move][move_stat])
-		if move_stat == PROPOSED:
-			proposed = move_stats[move][move_stat]
-		elif move_stat == ACCEPTED:
-			if proposed != 0:
-				print("\t", ACCEPTANCE_RATE, ":", move_stats[move][move_stat]/proposed)
+    print(move)
+    proposed = 0
+    for move_stat in move_stats[move]:
+        print("\t", move_stat, ":", move_stats[move][move_stat])
+        if move_stat == PROPOSED:
+            proposed = move_stats[move][move_stat]
+        elif move_stat == ACCEPTED:
+            if proposed != 0:
+                print("\t", ACCEPTANCE_RATE, ":", move_stats[move][move_stat]/proposed)
 
 print("============================\n")
 
 
 def percent_outside(sources_x, sources_y):
-	sources_x = sources_x.reshape(-1, 1)
-	sources_y = sources_y.reshape(-1, 1)
-	sources = np.hstack((sources_x, sources_y))
-	outside = np.where((np.abs(sources[:,0]) > window_max) | (np.abs(sources[:,1]) > window_max))
-	return outside[0].shape[0] / len(sources_x)
+    sources_x = sources_x.reshape(-1, 1)
+    sources_y = sources_y.reshape(-1, 1)
+    sources = np.hstack((sources_x, sources_y))
+    outside = np.where((np.abs(sources[:,0]) > window_max) | (np.abs(sources[:,1]) > window_max))
+    return outside[0].shape[0] / len(sources_x)
 
 
-# posterior is shape (samples, 3, 400)
+# get last for inspection
+last_x, last_y, last_b = posterior[-1]
+last_x, last_y, last_b = last_x[last_b != 0]/PSF_PIXEL_SIZE, last_y[last_b != 0]/PSF_PIXEL_SIZE, last_b[last_b != 0]
+print('N last sample:', len(last_x))
+
+# posterior is shape (samples, 3, N_MAX)
 p_x = np.concatenate(posterior[:, 0, :])
 p_y = np.concatenate(posterior[:, 1, :])
 p_b = np.concatenate(posterior[:, 2, :])
@@ -82,16 +87,18 @@ gt_x, gt_y, gt_b = ground_truth[0]/PSF_PIXEL_SIZE, ground_truth[1]/PSF_PIXEL_SIZ
 p_x, p_y = p_x/PSF_PIXEL_SIZE, p_y/PSF_PIXEL_SIZE
 
 # we expect 17.4 of sources to be outside FOV but in prior window
-print("expected percent outside: 17.4")
+print(f"expected percent outside: {100 * (1 - 1/WINDOW_SCALE**2)}")
 print("percent outside gt:", 100 * percent_outside(gt_x, gt_y))
 print("percent outside post:", 100 * percent_outside(p_x, p_y))
+print("percent outside last:", 100 * percent_outside(last_x, last_y))
 
 
 # plot 2d histogram of sources
-plt.hist2d(x=p_x, y=p_y, range=[[-1000, 1000], [-1000, 1000]], bins=128)#, weights=p_b)
-plt.scatter(x=gt_x, y=gt_y, c=gt_b, s=10, edgecolors='black')
+plt.hist2d(x=p_x, y=p_y, range=[[-800, 800], [-800, 800]], bins=64, weights=p_b)
+plt.scatter(x=gt_x, y=gt_y, c=gt_b, s=30, edgecolors='black')
+plt.scatter(x=last_x, y=last_y, c=last_b, s=30, edgecolors='red')
 plt.gca().add_patch(Rectangle((window_min,window_min),2*window_max,2*window_max,linewidth=.5,edgecolor='r',facecolor='none'))
-plt.gca().add_patch(Rectangle((1.1*window_min,1.1*window_min),1.1*2*window_max,1.1*2*window_max,linewidth=.5,edgecolor='black',facecolor='none'))
+plt.gca().add_patch(Rectangle((WINDOW_SCALE*window_min,WINDOW_SCALE*window_min),WINDOW_SCALE*2*window_max,WINDOW_SCALE*2*window_max,linewidth=.5,edgecolor='black',facecolor='none'))
 plt.show()
 
 # plot histogram of mus
@@ -113,6 +120,7 @@ plt.show()
 gt_b_sort = np.sort(gt_b)
 pr_b = np.linspace(1, 0, np.size(gt_b_sort))
 plt.scatter(x=gt_b_sort, y=pr_b)
+print('min b gt:', np.min(gt_b_sort))
 plt.title("CDF B GT")
 plt.show()
 
@@ -122,6 +130,14 @@ posterior_b_sort = np.sort(posterior_b_sample)
 pr_b = np.linspace(1, 0, np.size(posterior_b_sort))
 plt.scatter(x=posterior_b_sort, y=pr_b)
 plt.title("CDF B POSTERIOR")
+plt.show()
+
+plt.hist(x=gt_b)
+plt.title("gt b")
+plt.show()
+
+plt.hist(x=p_b)
+plt.title("post b")
 plt.show()
 
 # plot acceptance rate over time

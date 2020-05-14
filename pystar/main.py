@@ -5,19 +5,20 @@ from jax import random
 from mcmc_configs import *
 from model import NuSTARModel, ParameterSample
 from sampler import NuSTARSampler
-from utils import random_sources, write_results
+from utils import random_sources, random_sources_faint, write_results
 
 # set random seed
-key = random.PRNGKey(0)
+key = random.PRNGKey(16)
 key, sub_key = random.split(key)
 
 # generate ground truth observation
-sources_xt, sources_yt, sources_bt = random_sources(sub_key, N_SOURCES_TRUTH)
+# sources_xt, sources_yt, sources_bt = random_sources(sub_key, N_SOURCES_TRUTH)
+sources_xt, sources_yt, sources_bt = random_sources_faint(sub_key, N_SOURCES_TRUTH)
 mean_image = NuSTARModel.mean_emission_map(sources_xt, sources_yt, sources_bt)
 observed_image = NuSTARModel.sample_image(mean_image)
 
 pad = np.zeros(N_MAX - N_SOURCES_TRUTH)
-params = ParameterSample(
+params_gt = ParameterSample(
     sources_x=np.hstack((sources_xt, pad)),
     sources_y=np.hstack((sources_yt, pad)),
     sources_b=np.hstack((sources_bt, pad)),
@@ -27,8 +28,11 @@ params = ParameterSample(
 )
 
 experiment_description = """
-200 uniform sources gt, init random.
-Only uses split/merge moves, wide (widest/4) b and q and factor of 2 (pmerge=2).
+100 uniform sources gt b_min set to 20, init rand sources.
+FAINT SOURCE DIST
+Only uses birth/death moves WITHOUT factors of n in the proposal ratio.
+bsigma = 10
+INCLUDES HYPER (mu width to .5).
 """
 
 model = NuSTARModel(observed_image)

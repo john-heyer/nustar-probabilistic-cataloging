@@ -13,7 +13,7 @@ from model import ParameterSample, NuSTARModel
 from nustar_constants import *
 from utils import random_sources, random_source
 
-onp.random.seed(1)  # for drawing poisson numbers
+onp.random.seed(22)  # for drawing poisson numbers
 
 
 class NuSTARSampler:
@@ -72,7 +72,9 @@ class NuSTARSampler:
     def random_params(rng_key):
         sub_key, sub_key_2 = random.split(rng_key, 2)
         mu_init = np.exp(random.uniform(sub_key, minval=np.log(N_MIN), maxval=np.log(N_MAX)))
+        print('mu init', mu_init)
         n_init = onp.random.poisson(mu_init)
+        print('n init', n_init)
         sources_x_init, sources_y_init, sources_b_init = random_sources(sub_key_2, n_init)
         pad = np.zeros(N_MAX - n_init)
         return ParameterSample(
@@ -101,7 +103,7 @@ class NuSTARSampler:
     def __get_move_type(self, rng_key):
         normal_rate = 1 - self.jump_rate - self.hyper_rate
         jump_p = self.jump_rate / 4
-        logits = np.log(np.array([normal_rate, 0*jump_p, 0*jump_p, 2*jump_p, 2*jump_p, self.hyper_rate]))
+        logits = np.log(np.array([normal_rate, 2*jump_p, 2*jump_p, 0*jump_p, 0*jump_p, self.hyper_rate]))
         return random.categorical(rng_key, logits)
 
     @partial(jit, static_argnums=(0,))
@@ -354,6 +356,17 @@ class NuSTARSampler:
             key1, key2, key3 = random.split(key, 3)
             move_type = self.__get_move_type(key1)
             sample_new, log_proposal_ratio, sample_log_joint = self.__cond_proposal(key2, head, move_type)
+            # if move_type != 0 and move_type != 5:
+            #     print('move type:', 'birth' if move_type == 1 else 'death')
+            #     print('log prior head:', NuSTARModel.log_prior(head))
+            #     print('log prior new:', NuSTARModel.log_prior(sample_new))
+            #     print('log proposal ratio:', log_proposal_ratio)
+            #     print('prior and proposal ratio (should be 0):', NuSTARModel.log_prior(sample_new) + log_proposal_ratio - NuSTARModel.log_prior(head))
+            #     print()
+            # if move_type == 5:
+            #     print('hyper move')
+            #     print('q', sample_new.mu - head.mu)
+            #     print()
             log_alpha = sample_log_joint - log_joint_head + log_proposal_ratio
             accept = np.log(random.uniform(key3, minval=0, maxval=1)) < log_alpha
             new_head = lax.cond(accept, sample_new, lambda x: x, head, lambda x: x)
@@ -386,7 +399,11 @@ class NuSTARSampler:
 
         rng_key, final_sample, final_log_joint, all_samples, all_mus, all_ns, acceptances, moves, log_alphas = \
             lax.fori_loop(0, samples, next_state, state_init)
-
+        # equivalently (for debugging):
+        # state = state_init
+        # for i in range(samples):
+        #     state = next_state(i, state)
+        # rng_key, final_sample, final_log_joint, all_samples, all_mus, all_ns, acceptances, moves, log_alphas = state
         return final_sample, final_log_joint, all_samples, all_mus, all_ns, acceptances, moves, np.exp(log_alphas)
 
     def sample_with_burn_in(self):
