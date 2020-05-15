@@ -8,7 +8,7 @@ from jax import jit, vmap, random, scipy, lax, pmap, device_count
 from jax.ops import index_update
 from tqdm import tqdm
 
-from mcmc_configs import *
+from mcmc_configs import XY_MAX, XY_MIN, N_MIN, N_MAX, B_MIN, B_MAX
 from model import ParameterSample, NuSTARModel
 from nustar_constants import *
 from utils import random_sources, random_source
@@ -20,7 +20,8 @@ onp.random.seed(3)  # for drawing poisson numbers
 class NuSTARSampler:
 
     def __init__(
-            self, model, rng_key, params_init=None, burn_in_steps=0, samples=10000, jump_rate=.1, hyper_rate=.02,
+            self, model, rng_key, params_init=None, burn_in_steps=0, samples=10000, use_power_law=True, up_sample=4,
+            birth_death_rate=.05, split_merge_rate=.05, hyper_rate=.02,
             proposal_width_xy=.75, proposal_width_b=2.0, proposal_width_mu=1.0, proposal_width_split=200,
             sample_batch_size=1000, description="", n_chains=1, compute_psrf=False, sample_interval=500
     ):
@@ -43,8 +44,11 @@ class NuSTARSampler:
         # sampler configs
         self.burn_in_steps = burn_in_steps
         self.samples = samples
+        self.use_power_law = use_power_law
+        self.up_sample = up_sample
         self.sample_batch_size = sample_batch_size
-        self.jump_rate = jump_rate
+        self.birth_death_rate = birth_death_rate
+        self.split_merge_rate = split_merge_rate
         self.hyper_rate = hyper_rate
         self.proposal_width_xy = proposal_width_xy
         self.proposal_width_b = proposal_width_b
@@ -140,9 +144,10 @@ class NuSTARSampler:
 
     @partial(jit, static_argnums=(0,))
     def __get_move_type(self, rng_key):
-        normal_rate = 1 - self.jump_rate - self.hyper_rate
-        jump_p = self.jump_rate / 4
-        logits = np.log(np.array([normal_rate, 2*jump_p, 2*jump_p, 0*jump_p, 0*jump_p, self.hyper_rate]))
+        normal_rate = 1 - self.birth_death_rate - self.split_merge_rate - self.hyper_rate
+        bd_rate = self.birth_death_rate/2
+        sm_rate = self.split_merge_rate/2
+        logits = np.log(np.array([normal_rate, bd_rate, bd_rate, sm_rate, sm_rate, self.hyper_rate]))
         return random.categorical(rng_key, logits)
 
     @partial(jit, static_argnums=(0,))
@@ -381,14 +386,6 @@ class NuSTARSampler:
 
     @partial(jit, static_argnums=(0, 4))
     def sample_batch(self, rng_key, head, log_joint_head, samples):
-        # head = ParameterSample(
-        #     sources_x=sources_x,
-        #     sources_y=sources_y,
-        #     sources_b=sources_b,
-        #     mask=mask,
-        #     mu=mu,
-        #     n=n
-        # )
 
         def pack_sample(params):
             return np.array(
@@ -514,10 +511,22 @@ class NuSTARSampler:
 
     def __compute_psrf(self, psrf_samples):
         psrf_samples = np.concatenate(psrf_samples, axis=1)  # shape = (n_chains, burn_in/sample_interval, 3, N_MAX)
-        v_mean_map = vmap(vmap(lambda sample: self.model.mean_emission_map(sample[0], sample[1], sample[2]), in_axes=(0)), in_axes=(0,))
+        if self.use_power_law:
+            v_mean_map = vmap(
+                vmap(
+                    lambda sample: self.model.mean_emission_map_power_law(sample[0], sample[1], sample[2]), in_axes=(0,)
+                ), in_axes=(0,)
+            )
+        else:
+            v_mean_map = vmap(
+                vmap(
+                    lambda sample: self.model.mean_emission_map(sample[0], sample[1], sample[2], self.up_sample),
+                    in_axes=(0,)
+                ),
+                in_axes=(0,)
+            )
         map_tensor = v_mean_map(psrf_samples)
         map_tensor = np.transpose(map_tensor, axes=(1, 0, 2, 3))
-        # print('MAP TENSOR SHAPE:', map_tensor.shape)
         r_hat = compute_psrf(map_tensor)
         self.r_hat = onp.array(r_hat)
 
@@ -597,6 +606,7 @@ class NuSTARSampler:
 
 
 if __name__ == '__main__':
+    from mcmc_configs import N_SOURCES_TRUTH
     key = random.PRNGKey(0)
     key, sub_key = random.split(key)
 
@@ -616,11 +626,7 @@ if __name__ == '__main__':
     )
 
     model = NuSTARModel(observed_image)
-    sampler = NuSTARSampler(
-        model, key, burn_in_steps=BURN_IN_STEPS, samples=SAMPLES, jump_rate=JUMP_RATE, hyper_rate=HYPER_RATE,
-        proposal_width_xy=PROPOSAL_WIDTH_XY, proposal_width_b=PROPOSAL_WIDTH_B, proposal_width_mu=PROPOSAL_WIDTH_MU,
-        proposal_width_split=PROPOSAL_WIDTH_SPLIT, sample_batch_size=SAMPLE_BATCH_SIZE,
-    )
+    sampler = NuSTARSampler(model, key)
     print('split')
     new, ratio = sampler.split(key, params)
     print(ratio)

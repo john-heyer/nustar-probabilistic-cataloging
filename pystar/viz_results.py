@@ -7,6 +7,7 @@ import numpy as np
 from matplotlib.patches import Rectangle
 
 from nustar_constants import *
+from mcmc_configs import *
 
 parser = argparse.ArgumentParser(description='Visualize sampler results')
 parser.add_argument(
@@ -82,7 +83,7 @@ p_b = p_b[p_b != 0]
 
 total_sources = np.sum([n * n_posterior[n] for n in n_posterior])
 
-# assert len(p_x) == total_sources, f"size of posterior sources ({len(p_x)}) not consistent with N posterior total ({total_sources})"
+assert len(p_x) == total_sources, f"size of posterior sources ({len(p_x)}) not consistent with N posterior total ({total_sources})"
 
 gt_x, gt_y, gt_b = ground_truth[0]/PSF_PIXEL_SIZE, ground_truth[1]/PSF_PIXEL_SIZE, ground_truth[2]
 p_x, p_y = p_x/PSF_PIXEL_SIZE, p_y/PSF_PIXEL_SIZE
@@ -99,6 +100,10 @@ if r_hat is not None:
     r_hat = r_hat.reshape(r_hat.shape[0] * r_hat.shape[1])
     r_hat = sorted(r_hat)
     plt.hist(r_hat, ec='black')
+    plt.title("R_hat Statistic")
+    plt.xlabel("r_hat")
+    plt.ylabel("count")
+    plt.figtext(.7, .75, f'min={r_hat[0]:.4f}\nmax={r_hat[-1]:.4f}\nmean={np.mean(r_hat):.4f}')
     plt.show()
 
 
@@ -108,11 +113,14 @@ plt.scatter(x=gt_x, y=gt_y, c=gt_b, s=30, edgecolors='black')
 plt.scatter(x=last_x, y=last_y, c=last_b, s=30, edgecolors='red')
 plt.gca().add_patch(Rectangle((window_min,window_min),2*window_max,2*window_max,linewidth=.5,edgecolor='r',facecolor='none'))
 plt.gca().add_patch(Rectangle((WINDOW_SCALE*window_min,WINDOW_SCALE*window_min),WINDOW_SCALE*2*window_max,WINDOW_SCALE*2*window_max,linewidth=.5,edgecolor='black',facecolor='none'))
+plt.colorbar()
 plt.show()
 
 # plot histogram of mus
 plt.hist(x=list(mu_posterior.keys()), weights=list(mu_posterior.values()), bins=25, color='y', edgecolor='k')
 plt.title("Mu Posterior")
+plt.xlabel("mu")
+plt.ylabel("count")
 plt.axvline(len(gt_x), color='k', linestyle='dashed', linewidth=1)
 plt.show()
 
@@ -122,6 +130,8 @@ n_sources = [int(tup[0])for tup in source_count_tuples]
 count = [tup[1] for tup in source_count_tuples]
 plt.bar(n_sources, count, color='g', edgecolor='k')
 plt.title("N Posterior")
+plt.xlabel("N")
+plt.ylabel("count")
 plt.axvline(len(gt_x), color='k', linestyle='dashed', linewidth=1)
 plt.show()
 
@@ -130,7 +140,9 @@ gt_b_sort = np.sort(gt_b)
 pr_b = np.linspace(1, 0, np.size(gt_b_sort))
 plt.scatter(x=gt_b_sort, y=pr_b)
 print('min b gt:', np.min(gt_b_sort))
-plt.title("CDF B GT")
+plt.title("CDF B Ground Truth")
+plt.xlabel("b")
+plt.ylabel("p(B > b)")
 plt.show()
 
 # plot cdf over source brightness for posterior
@@ -138,20 +150,28 @@ posterior_b_sample = np.random.choice(p_b, size=2000, replace=False)
 posterior_b_sort = np.sort(posterior_b_sample)
 pr_b = np.linspace(1, 0, np.size(posterior_b_sort))
 plt.scatter(x=posterior_b_sort, y=pr_b)
-plt.title("CDF B POSTERIOR")
+plt.title("CDF B Posterior")
+plt.xlabel("b")
+plt.ylabel("p(B > b)")
 plt.show()
 
 plt.hist(x=gt_b)
-plt.title("gt b")
+plt.title("b Ground Truth")
+plt.xlabel("b")
+plt.ylabel("count")
 plt.show()
 
 plt.hist(x=p_b)
-plt.title("post b")
+plt.title("b Posterior")
+plt.xlabel("b")
+plt.ylabel("count")
 plt.show()
 
 # plot acceptance rate over time
 batch_size = stats[BATCH_SIZE]
 plt.scatter(x=[(i+1)*batch_size for i in range(len(acceptance_rates))], y=acceptance_rates)
-plt.title(f"Acceptance_rate per {batch_size} iterations")
+plt.title(f"Acceptance rate per batch")
+plt.xlabel("iteration")
+plt.ylabel("acceptance rate")
 plt.show()
 

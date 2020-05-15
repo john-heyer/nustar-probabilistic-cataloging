@@ -5,7 +5,7 @@ import jax.numpy as np
 import numpy as onp
 from jax import jit, vmap, scipy, lax, ops, random, pmap
 
-from mcmc_configs import *
+from mcmc_configs import N_MIN, N_MAX, B_MIN, B_MAX, XY_MAX, XY_MIN
 from nustar_constants import *
 from utils import random_sources
 
@@ -19,13 +19,14 @@ from time import process_time
 ParameterSample = namedtuple('ParameterSample', ['sources_x', 'sources_y', 'sources_b', 'mask', 'mu', 'n'])
 
 # TODO:
-# [] check all psfs have zero edge values
-# [] parallelize... currently not working across sources with pmap, try multiple chains instead
-# [] inspect zeros and infs
-# [] remove mask from parameter sample and construct based on n
-# [] make non-normal moves likelihoods constant time
-# [] update psrf
+# [] inspect splits/merges again
+# [] parallelize over sources, pmap fails (currently have parallel chains)
+# [] make non-normal moves constant time
 # [] use logging
+# [] add background
+# [] add vignetting
+# [] try to get hmc to work
+# [] alternate split/merge proposals
 
 
 PSF_BY_ARC_MINUTE = np.array(onp.load("psf_by_arcminute.npy"))
@@ -33,8 +34,11 @@ PSF_BY_ARC_MINUTE = np.array(onp.load("psf_by_arcminute.npy"))
 
 class NuSTARModel:
 
-    def __init__(self, observed_image):
+    def __init__(self, observed_image, use_power_law=True, up_sample=4):
         self.observed_image = observed_image
+        self.use_power_law = use_power_law
+        self.up_sample = up_sample
+        self.log_joint = lambda params: self._log_joint(params, self.use_power_law, self.up_sample)
 
     @staticmethod
     @partial(jit, static_argnums=(1,))
@@ -58,7 +62,7 @@ class NuSTARModel:
 
     @staticmethod
     @partial(jit, static_argnums=(3,))
-    def mean_emission_map_new(sources_x, sources_y, sources_b, up_sample_factor):
+    def mean_emission_map(sources_x, sources_y, sources_b, up_sample_factor):
 
         def pixel_psf(x_im, y_im, source_x, source_y, theta, psf):
             # translated
@@ -120,20 +124,17 @@ class NuSTARModel:
         x_coords = np.linspace(-n_pixels / 2 + .5, n_pixels / 2 - .5, n_pixels) * up_sampled_pixel_size
         y_coords = np.linspace(n_pixels / 2 - .5, -n_pixels / 2 + .5, n_pixels) * up_sampled_pixel_size
         all_sources_map = map_all_sources(x_coords, y_coords, sources_x, sources_y, sources_b)
-        print("shape here:", all_sources_map.shape)
-        print(type(all_sources_map))
 
         rebin_all = vmap(NuSTARModel.rebin, in_axes=(0, None))
         pixel_area_ratio = up_sampled_pixel_size**2 / PSF_PIXEL_SIZE**2
         shape = (NUSTAR_IMAGE_LENGTH, NUSTAR_IMAGE_LENGTH)
         psf_all = rebin_all(all_sources_map, shape) * pixel_area_ratio
-        # psf_all = psf_all * sources_b[:, np.newaxis, np.newaxis]  # scale by brightness of sources
         emission_map = np.sum(psf_all, axis=0)
         return emission_map
 
     @staticmethod
     @jit
-    def mean_emission_map(sources_x, sources_y, sources_b):
+    def mean_emission_map_power_law(sources_x, sources_y, sources_b):
         # psf by pixel (i, j) in response to a single source
         def pixel_psf_powerlaw(i, j, source_x, source_y):
             psf_half_length = NUSTAR_IMAGE_LENGTH / 2
@@ -218,46 +219,33 @@ class NuSTARModel:
                 )
         )
 
-    @partial(jit, static_argnums=(0,))
-    def log_joint(self, params):
-        emission_map = NuSTARModel.mean_emission_map(params.sources_x, params.sources_y, params.sources_b)
-        # emission_map = NuSTARModel.mean_emission_map_new(params.sources_x, params.sources_y, params.sources_b, 8)
+    @partial(jit, static_argnums=(0, 2, 3))
+    def _log_joint(self, params, use_power_law, up_sample):
+        if use_power_law:
+            emission_map = NuSTARModel.mean_emission_map_power_law(params.sources_x, params.sources_y, params.sources_b)
+        else:
+            emission_map = NuSTARModel.mean_emission_map(
+                params.sources_x, params.sources_y, params.sources_b, up_sample
+            )
         return self.log_likelihood(emission_map) + NuSTARModel.log_prior(params)
 
 
 if __name__ == "__main__":
-    # print(NuSTARModel.log_prior_mu(200), NuSTARModel.log_prior_mu(230))
-
     key = random.PRNGKey(3)
-    # sources_x, sources_y, sources_b = random_sources(key, 20)
+    n_sources, n_max = 40, 80
+    sources_xt, sources_yt, sources_bt = random_sources(key)
 
-    # map = NuSTARModel.mean_emission_map(sources_x, sources_y, sources_b)
-    # # sources_b = np.ones(200)
-    # map = onp.array(map)
-    # model = NuSTARModel(map)
-    N_SOURCES_TRUTH, N_MAX = 200, 400
-    sources_xt, sources_yt, sources_bt = random_sources(key, N_SOURCES_TRUTH)
-    # sources_bt = np.ones((N_SOURCES_TRUTH))
-    # sources_xt = np.zeros((N_SOURCES_TRUTH))
-    # sources_yt = np.zeros((N_SOURCES_TRUTH))
-
-    pad = np.zeros(N_MAX - N_SOURCES_TRUTH)
+    pad = np.zeros(n_max - n_sources)
     sources_xp = np.hstack((sources_xt, pad))
     sources_yp = np.hstack((sources_yt, pad))
     sources_bp = np.hstack((sources_bt, pad))
 
-    map_x = NuSTARModel.mean_emission_map(sources_xp, sources_yp, sources_bp).block_until_ready()
+    map_x = NuSTARModel.mean_emission_map(sources_xp, sources_yp, sources_bp, 8).block_until_ready()
     start = default_timer()
     startcpu = process_time()
-    # map = NuSTARModel.mean_emission_map_new(np.array(
-    #     [-16 * NUSTAR_PIXEL_SIZE, 20*NUSTAR_PIXEL_SIZE, 0*NUSTAR_PIXEL_SIZE]),
-    #     np.array([2 * NUSTAR_PIXEL_SIZE, 20 * NUSTAR_PIXEL_SIZE, 22 * NUSTAR_PIXEL_SIZE]),
-    #     np.array([1,6,15]),
-    #     8
-    # )
-    map = NuSTARModel.mean_emission_map(sources_xp, sources_yp, sources_bp).block_until_ready()
+    map = NuSTARModel.mean_emission_map(sources_xp, sources_yp, sources_bp, 8).block_until_ready()
     print("wall time:", default_timer() - start)
     print("cpu time:", process_time() - startcpu)
     print(np.sum(map))
     plt.matshow(map)
-    # plt.show()
+    plt.show()

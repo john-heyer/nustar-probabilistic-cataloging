@@ -8,7 +8,6 @@ NOTES:
 - Use script `viz_results.py` to visualize the posterior and read stats.
     - example: we set the `EXPERIMENT_DIR` to `experiments/testing` in `mcmc_configs.py`
         - $ `python pystar/viz_results.py experiments/testing`
-- `psrf.py` computes and displays the $\hat{R}$ psrf statistic over all pixels of the 64x64 emission map
 
 To run experiment:
 - Check configurations in `mcmc_configs.py`
@@ -17,5 +16,5 @@ To run experiment:
         - $ `python pystar/main.py`
     - if n chains:
         - $ `XLA_FLAGS="--xla_force_host_platform_device_count=n" python pystar/main.py`
-        - without this will resort to vmap, which is preferred on machines without many cores
+        - without this will resort to `vmap`, which is preferred on machines without many cores
 - Come back later!

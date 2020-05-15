@@ -4,7 +4,6 @@ import numpy as onp
 import jax.numpy as np
 from jax import jit, random
 
-from nustar_constants import *
 from mcmc_configs import *
 
 from scipy.stats import truncnorm
@@ -23,13 +22,12 @@ def random_sources(rng_key, n):
     return sources_x, sources_y, sources_b
 
 
-def random_sources_faint(rng_key, n):
+def random_sources_faint(rng_key, n, mu, sigma):
     key1, key2, key3 = random.split(rng_key, 3)
-    b_dist = get_truncated_normal(mean=200, sd=300, low=B_MIN, upp=B_MAX)
+    b_dist = get_truncated_normal(mean=mu, sd=sigma, low=B_MIN, upp=B_MAX)
     sources_b = np.array(b_dist.rvs(n))
     sources_x = random.uniform(key1, shape=(n,), minval=XY_MIN, maxval=XY_MAX)
     sources_y = random.uniform(key2, shape=(n,), minval=XY_MIN, maxval=XY_MAX)
-    # sources_b = random.uniform(key3, shape=(n,), minval=B_MIN, maxval=B_MAX)
     return sources_x, sources_y, sources_b
 
 
