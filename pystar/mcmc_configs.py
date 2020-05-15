@@ -9,9 +9,9 @@ N_MAX = 100
 N_SOURCES_TRUTH = 50
 
 # how much to scale the length of the field of view for prior support
-WINDOW_SCALE = 1.10
+WINDOW_SCALE = 1.1
 # spatial support (uniform)
-XY_MIN = -WINDOW_SCALE * PSF_IMAGE_LENGTH/2.0 * PSF_PIXEL_SIZE
+XY_MIN = -WINDOW_SCALE * NUSTAR_IMAGE_LENGTH/2.0 * NUSTAR_PIXEL_SIZE
 XY_MAX = - XY_MIN
 # intensity support (uniform)
 B_MIN, B_MAX = 20, 1000
@@ -30,9 +30,9 @@ PROPOSAL_WIDTH_MU = 2.0
 PROPOSAL_WIDTH_SPLIT = 1.5*200*7
 
 # produces floor(SAMPLES/SAMPLE_BATCH_SIZE/N_CHAINS) * SAMPLE_BATCH_SIZE * N_CHAINS samples, divided amongst N_CHAINS
-N_CHAINS = 4
-SAMPLES = 64000
-BURN_IN_STEPS = 400000  # each chain goes through all BURN_IN_STEPS
+N_CHAINS = 1
+SAMPLES = 6000
+BURN_IN_STEPS = 4000  # each chain goes through all BURN_IN_STEPS
 SAMPLE_BATCH_SIZE = 1000 * N_CHAINS
 
 # alternative move rates, divided evenly between birth/death and split/merge
@@ -47,11 +47,11 @@ PSF_UP_SAMPLE_FACTOR = 4
 
 # when true, use every (SAMPLE_INTERVAL)th sample from each batch from all n_chains to compute r_hat statistic, i.e.
 # M = N_CHAINS, N = BURN_IN_STEPS//SAMPLE_INTERVAL
-CHECK_CONVERGENCE = True
+CHECK_CONVERGENCE = False
 SAMPLE_INTERVAL = 500
 
 # file names to save results, be careful not to overwrite
-EXPERIMENT_DIR = "experiments/testing/parallel/1"
+EXPERIMENT_DIR = "experiments/testing/parallel/2"
 os.makedirs(os.path.join(os.getcwd(), EXPERIMENT_DIR), exist_ok=True)  # mkdir if doesn't exist
 POSTERIOR_FILE = os.path.join(EXPERIMENT_DIR, "posterior.npz")
 STATS_FILE = os.path.join(EXPERIMENT_DIR, "stats.dictionary")

@@ -8,7 +8,7 @@ from jax import jit, vmap, random, scipy, lax, pmap, device_count
 from jax.ops import index_update
 from tqdm import tqdm
 
-from mcmc_configs import XY_MAX, XY_MIN, N_MIN, N_MAX, B_MIN, B_MAX
+from mcmc_configs import XY_MAX, XY_MIN, N_MIN, N_MAX, B_MIN, B_MAX, WINDOW_SCALE
 from model import ParameterSample, NuSTARModel
 from nustar_constants import *
 from utils import random_sources, random_source
@@ -601,6 +601,7 @@ class NuSTARSampler:
                 N_POSTERIOR: self.n_posterior,
                 MU_POSTERIOR: self.mu_posterior,
                 R_HAT: self.r_hat,
+                WIND_SCALE_STR: WINDOW_SCALE,
             }
         )
 

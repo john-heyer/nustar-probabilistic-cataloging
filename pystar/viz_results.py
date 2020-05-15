@@ -24,7 +24,7 @@ for file in os.listdir(data_dir):
     else:
         stats_obj_file = os.path.join(data_dir, file)
 
-window_min, window_max = -PSF_IMAGE_LENGTH/2, PSF_IMAGE_LENGTH/2
+window_min, window_max = -NUSTAR_IMAGE_LENGTH/2, NUSTAR_IMAGE_LENGTH/2
 
 posterior_data = np.load(posterior_file)
 
@@ -39,6 +39,7 @@ n_posterior = stats.pop(N_POSTERIOR)
 mu_posterior = stats.pop(MU_POSTERIOR)
 acceptance_rates = stats.pop(BATCH_ACCEPTANCE_RATES)
 r_hat = stats.pop(R_HAT)
+window_scale = stats.pop(WIND_SCALE_STR)
 
 print("\n======acceptance stats======")
 
@@ -69,7 +70,7 @@ def percent_outside(sources_x, sources_y):
 
 # get last for inspection
 last_x, last_y, last_b = posterior[-1]
-last_x, last_y, last_b = last_x[last_b != 0]/PSF_PIXEL_SIZE, last_y[last_b != 0]/PSF_PIXEL_SIZE, last_b[last_b != 0]
+last_x, last_y, last_b = last_x[last_b != 0]/NUSTAR_PIXEL_SIZE, last_y[last_b != 0]/NUSTAR_PIXEL_SIZE, last_b[last_b != 0]
 print('N last sample:', len(last_x))
 
 # posterior is shape (samples, 3, N_MAX)
@@ -85,11 +86,11 @@ total_sources = np.sum([n * n_posterior[n] for n in n_posterior])
 
 assert len(p_x) == total_sources, f"size of posterior sources ({len(p_x)}) not consistent with N posterior total ({total_sources})"
 
-gt_x, gt_y, gt_b = ground_truth[0]/PSF_PIXEL_SIZE, ground_truth[1]/PSF_PIXEL_SIZE, ground_truth[2]
-p_x, p_y = p_x/PSF_PIXEL_SIZE, p_y/PSF_PIXEL_SIZE
+gt_x, gt_y, gt_b = ground_truth[0]/NUSTAR_PIXEL_SIZE, ground_truth[1]/NUSTAR_PIXEL_SIZE, ground_truth[2]
+p_x, p_y = p_x/NUSTAR_PIXEL_SIZE, p_y/NUSTAR_PIXEL_SIZE
 
 # we expect 17.4 of sources to be outside FOV but in prior window
-print(f"expected percent outside: {100 * (1 - 1/WINDOW_SCALE**2)}")
+print(f"expected percent outside: {100 * (1 - 1/window_scale**2)}")
 print("percent outside gt:", 100 * percent_outside(gt_x, gt_y))
 print("percent outside post:", 100 * percent_outside(p_x, p_y))
 print("percent outside last:", 100 * percent_outside(last_x, last_y))
@@ -108,11 +109,25 @@ if r_hat is not None:
 
 
 # plot 2d histogram of sources
-plt.hist2d(x=p_x, y=p_y, range=[[-800, 800], [-800, 800]], bins=64, weights=p_b)
+plt.hist2d(x=p_x, y=p_y, range=[[1.4*window_min, 1.4*window_max], [1.4*window_min, 1.4*window_max]], bins=64, weights=p_b)
 plt.scatter(x=gt_x, y=gt_y, c=gt_b, s=30, edgecolors='black')
 plt.scatter(x=last_x, y=last_y, c=last_b, s=30, edgecolors='red')
-plt.gca().add_patch(Rectangle((window_min,window_min),2*window_max,2*window_max,linewidth=.5,edgecolor='r',facecolor='none'))
-plt.gca().add_patch(Rectangle((WINDOW_SCALE*window_min,WINDOW_SCALE*window_min),WINDOW_SCALE*2*window_max,WINDOW_SCALE*2*window_max,linewidth=.5,edgecolor='black',facecolor='none'))
+plt.gca().add_patch(Rectangle(
+    (window_min, window_min),
+    2 * window_max,
+    2 * window_max,
+    linewidth=.5,
+    edgecolor='r',
+    facecolor='none')
+)
+plt.gca().add_patch(Rectangle(
+    (window_scale * window_min, window_scale * window_min),
+    window_scale * 2 * window_max,
+    window_scale * 2 * window_max,
+    linewidth=.5,
+    edgecolor='black',
+    facecolor='none')
+)
 plt.colorbar()
 plt.show()
 
