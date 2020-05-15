@@ -13,5 +13,9 @@ NOTES:
 To run experiment:
 - Check configurations in `mcmc_configs.py`
 - Perhaps adjust description in `main.py`
-- $ `python pystar/main.py`
+    - if single chain:
+        - $ `python pystar/main.py`
+    - if n chains:
+        - $ `XLA_FLAGS="--xla_force_host_platform_device_count=n" python pystar/main.py`
+        - without this will resort to vmap, which is preferred on machines without many cores
 - Come back later!

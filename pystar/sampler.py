@@ -4,7 +4,7 @@ from functools import partial
 
 import jax.numpy as np
 import numpy as onp
-from jax import jit, vmap, random, scipy, lax, pmap
+from jax import jit, vmap, random, scipy, lax, pmap, device_count
 from jax.ops import index_update
 from tqdm import tqdm
 
@@ -460,7 +460,7 @@ class NuSTARSampler:
         self.run_sampler(burn_in=False)
         print("Done!")
 
-    def __collect_stats(self, acceptances, moves, alphas):
+    def __collect_stats(self, batch_size, acceptances, moves, alphas):
         acceptances_arr = np.array(acceptances)
         moves_arr = np.array(moves)
         alpha_arr = np.array(alphas)
@@ -489,7 +489,7 @@ class NuSTARSampler:
             return all_moves.shape[0], np.sum(all_acceptances), batch_accepts, move_stats
 
         total_proposals, total_accepts, batch_acceptance_rates, move_stats = compile_stats(
-            self.sample_batch_size, len(MOVES), moves_arr, acceptances_arr, alpha_arr
+            batch_size, len(MOVES), moves_arr, acceptances_arr, alpha_arr
         )
 
         proposals_by_move, accepts_by_move, zeros_by_move, infs_by_move = move_stats
@@ -535,38 +535,26 @@ class NuSTARSampler:
 
         chains, all_mus, all_ns, acceptances, all_moves, all_alphas, psrf_samples = [], [], [], [], [], [], []
         t = tqdm(total=(batches * self.sample_batch_size), file=sys.stdout)
-        for batch_i in range(batches):
-            self.rng_key, *keys = random.split(self.rng_key, self.n_chains + 1)
 
-            # sources_x_by_chain = np.array([self.head[i].sources_x for i in range(self.n_chains)])
-            # sources_y_by_chain = np.array([self.head[i].sources_y for i in range(self.n_chains)])
-            # sources_b_by_chain = np.array([self.head[i].sources_b for i in range(self.n_chains)])
-            # mask_by_chain = np.array([self.head[i].mask for i in range(self.n_chains)])
-            # mu_by_chain = np.array([self.head[i].mu for i in range(self.n_chains)])
-            # n_by_chain = np.array([self.head[i].n for i in range(self.n_chains)])
-            #
-            # p_batch = pmap(
-            #     self.sample_batch,
-            #     in_axes=(0, 0, 0, 0, 0, 0, 0, 0, None),
-            #     static_broadcasted_argnums=(8,)
-            # )
+        if device_count() < self.n_chains or device_count() == 1:
             p_batch = vmap(
                 self.sample_batch,
                 in_axes=(0, 0, 0, None),
             )
+        else:
+            p_batch = pmap(
+                self.sample_batch,
+                in_axes=(0, 0, 0, None),
+                static_broadcasted_argnums=(3,)
+            )
+
+        for batch_i in range(batches):
+            self.rng_key, *keys = random.split(self.rng_key, self.n_chains + 1)
             head, log_joint_head, chain, mus, ns, accepts, moves, alphas = p_batch(
                 np.array(keys), self.head, self.log_joint_head, batch_size
             )
-            # print('P BATCH')
-            # print(head)
-            # print(head[0])
-
             self.head, self.log_joint_head = head, log_joint_head
             if not burn_in:
-                # print(chain.shape)
-                # print(mus.shape)
-                # print(np.concatenate(chain, axis=0).shape)
-                # print(mus.flatten().shape)
                 chains.append(np.concatenate(chain, axis=0))
                 all_mus.append(mus.flatten())
                 all_ns.append(ns.flatten())
@@ -579,7 +567,7 @@ class NuSTARSampler:
             t.update(batch_size * (self.n_chains if not burn_in else 1))
         t.close()
         print("Recording stats from run...")
-        self.__collect_stats(acceptances, all_moves, all_alphas)
+        self.__collect_stats(batch_size * self.n_chains, acceptances, all_moves, all_alphas)
         if burn_in and self.compute_psrf:
             print("Computing psrf...")
             self.__compute_psrf(psrf_samples)

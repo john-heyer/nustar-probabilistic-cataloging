@@ -151,7 +151,7 @@ plt.show()
 
 # plot acceptance rate over time
 batch_size = stats[BATCH_SIZE]
-plt.scatter(x=[(i+1)*1000 for i in range(len(acceptance_rates))], y=acceptance_rates)
+plt.scatter(x=[(i+1)*batch_size for i in range(len(acceptance_rates))], y=acceptance_rates)
 plt.title(f"Acceptance_rate per {batch_size} iterations")
 plt.show()
 
