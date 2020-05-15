@@ -524,11 +524,13 @@ class NuSTARSampler:
     def run_sampler(self, burn_in=False):
         # Note: can be used to continue sampling
         if burn_in:
-            batches = self.burn_in_steps // self.sample_batch_size
+            batch_size = self.sample_batch_size
+            batches = self.burn_in_steps // batch_size
             print(f"Burning in for {batches * self.sample_batch_size} steps:")
         else:
             # sampling
-            batches = (self.samples // self.n_chains) // self.sample_batch_size
+            batch_size = self.sample_batch_size // self.n_chains
+            batches = (self.samples // self.n_chains) // batch_size
             print(f"Sampling for {batches * self.sample_batch_size} steps:")
 
         chains, all_mus, all_ns, acceptances, all_moves, all_alphas, psrf_samples = [], [], [], [], [], [], []
@@ -553,7 +555,7 @@ class NuSTARSampler:
                 in_axes=(0, 0, 0, None),
             )
             head, log_joint_head, chain, mus, ns, accepts, moves, alphas = p_batch(
-                np.array(keys), self.head, self.log_joint_head, self.sample_batch_size
+                np.array(keys), self.head, self.log_joint_head, batch_size
             )
             # print('P BATCH')
             # print(head)
@@ -574,7 +576,7 @@ class NuSTARSampler:
             acceptances.append(accepts.flatten())
             all_moves.append(moves.flatten())
             all_alphas.append(alphas.flatten())
-            t.update(self.sample_batch_size * (self.n_chains if not burn_in else 1))
+            t.update(batch_size * (self.n_chains if not burn_in else 1))
         t.close()
         print("Recording stats from run...")
         self.__collect_stats(acceptances, all_moves, all_alphas)
