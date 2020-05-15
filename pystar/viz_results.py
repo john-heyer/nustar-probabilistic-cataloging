@@ -37,6 +37,7 @@ move_stats = stats.pop(STATS_BY_MOVE)
 n_posterior = stats.pop(N_POSTERIOR)
 mu_posterior = stats.pop(MU_POSTERIOR)
 acceptance_rates = stats.pop(BATCH_ACCEPTANCE_RATES)
+r_hat = stats.pop(R_HAT)
 
 print("\n======acceptance stats======")
 
@@ -91,6 +92,14 @@ print(f"expected percent outside: {100 * (1 - 1/WINDOW_SCALE**2)}")
 print("percent outside gt:", 100 * percent_outside(gt_x, gt_y))
 print("percent outside post:", 100 * percent_outside(p_x, p_y))
 print("percent outside last:", 100 * percent_outside(last_x, last_y))
+
+
+# histogram of r_hat statistic over 64x64 nustar image
+if r_hat is not None:
+    r_hat = r_hat.reshape(r_hat.shape[0] * r_hat.shape[1])
+    r_hat = sorted(r_hat)
+    plt.hist(r_hat, ec='black')
+    plt.show()
 
 
 # plot 2d histogram of sources

@@ -4,7 +4,7 @@ from functools import partial
 
 import jax.numpy as np
 import numpy as onp
-from jax import jit, vmap, random, scipy, lax
+from jax import jit, vmap, random, scipy, lax, pmap
 from jax.ops import index_update
 from tqdm import tqdm
 
@@ -12,8 +12,9 @@ from mcmc_configs import *
 from model import ParameterSample, NuSTARModel
 from nustar_constants import *
 from utils import random_sources, random_source
+from psrf import compute_psrf
 
-onp.random.seed(22)  # for drawing poisson numbers
+onp.random.seed(3)  # for drawing poisson numbers
 
 
 class NuSTARSampler:
@@ -21,19 +22,23 @@ class NuSTARSampler:
     def __init__(
             self, model, rng_key, params_init=None, burn_in_steps=0, samples=10000, jump_rate=.1, hyper_rate=.02,
             proposal_width_xy=.75, proposal_width_b=2.0, proposal_width_mu=1.0, proposal_width_split=200,
-            sample_batch_size=1000, description=""
+            sample_batch_size=1000, description="", n_chains=1, compute_psrf=False
     ):
         self.model = model
         self.rng_key = rng_key
+        self.n_chains = n_chains
 
         # initial params
         if params_init is None:
-            self.head = self.random_params(self.rng_key)
+            # self.head = [self.random_params(key) for key in random.split(self.rng_key, self.n_chains)]
+            self.head = self.random_params_p(self.rng_key, self.n_chains)
         else:
-            self.head = params_init
-        NuSTARSampler.check_parameter_invariants(self.head)
-        self.log_joint_head = model.log_joint(self.head)
-        print(self.head.n)
+            self.head = [params_init for _ in range(self.n_chains)]
+
+        NuSTARSampler.check_parameter_invariants(self.head, self.n_chains)
+
+        self.log_joint_head = vmap(model.log_joint)(self.head)
+
 
         # sampler configs
         self.burn_in_steps = burn_in_steps
@@ -53,6 +58,9 @@ class NuSTARSampler:
         self.accepted = 0
         self.batch_acceptance_rates = []
         self.description = description
+        self.compute_psrf = compute_psrf
+        self.psrf_samples = []
+        self.r_hat = None
 
         # posterior
         self.source_posterior = onp.zeros((0, 3, N_MAX))  # final shape should be (samples, 3, N_MAX)
@@ -60,21 +68,52 @@ class NuSTARSampler:
         self.n_posterior = Counter()
 
     @staticmethod
-    def check_parameter_invariants(params):
-        # only used for testing as will not compile with jax
-        assert params.n == np.sum(params.mask), "parameter n not matching mask"
-        assert np.all(params.mask == (np.arange(N_MAX) < params.n)), "mask is not an array of ones with zero padding"
-        assert np.all(params.sources_x[np.logical_not(params.mask)] == 0), "outside mask x values not zero"
-        assert np.all(params.sources_y[np.logical_not(params.mask)] == 0), "outside mask y values not zero"
-        assert np.all(params.sources_b[np.logical_not(params.mask)] == 0), "outside mask b values not zero"
+    def check_parameter_invariants(params, n_chains):
+        # only used for testing as assertions will not compile with jax
+        for i in range(n_chains):
+            assert params.n[i] == np.sum(params.mask[i]), "parameter n not matching mask"
+            assert np.all(params.mask[i] == (np.arange(N_MAX) < params.n[i])), "mask is not an array of ones with zero padding"
+            assert np.all(params.sources_x[i][np.logical_not(params.mask[i])] == 0), "outside mask x values not zero"
+            assert np.all(params.sources_y[i][np.logical_not(params.mask[i])] == 0), "outside mask y values not zero"
+            assert np.all(params.sources_b[i][np.logical_not(params.mask[i])] == 0), "outside mask b values not zero"
+            print(f'Chain {i + 1} mu init: {params.mu[i]}')
+            print(f'Chain {i + 1} n init: {params.n[i]}')
+
+    @staticmethod
+    def random_params_p(rng_key, n_chains):
+        # will not compile as it relies on original numpy for poisson samples
+        s_x, s_y, s_b, msk, mus, ns = [], [], [], [], [], []
+        for i in range(n_chains):
+
+            rng_key, sub_key, sub_key_2 = random.split(rng_key, 3)
+            mu_init = np.exp(random.uniform(sub_key, minval=np.log(N_MIN), maxval=np.log(N_MAX)))
+            n_init = 0
+            while n_init < N_MIN or n_init > N_MAX:
+                n_init = onp.random.poisson(mu_init)
+            sources_x_init, sources_y_init, sources_b_init = random_sources(sub_key_2, n_init)
+            pad = np.zeros(N_MAX - n_init)
+            s_x.append(np.hstack((sources_x_init, pad))),
+            s_y.append(np.hstack((sources_y_init, pad))),
+            s_b.append(np.hstack((sources_b_init, pad))),
+            msk.append(np.arange(N_MAX) < n_init),
+            mus.append(mu_init)
+            ns.append(n_init)
+
+        return ParameterSample(
+            sources_x=np.array(s_x),
+            sources_y=np.array(s_y),
+            sources_b=np.array(s_b),
+            mask=np.array(msk),
+            mu=np.array(mus),
+            n=np.array(ns),
+        )
 
     @staticmethod
     def random_params(rng_key):
+        # will not compile as it relies on original numpy for poisson samples
         sub_key, sub_key_2 = random.split(rng_key, 2)
         mu_init = np.exp(random.uniform(sub_key, minval=np.log(N_MIN), maxval=np.log(N_MAX)))
-        print('mu init', mu_init)
         n_init = onp.random.poisson(mu_init)
-        print('n init', n_init)
         sources_x_init, sources_y_init, sources_b_init = random_sources(sub_key_2, n_init)
         pad = np.zeros(N_MAX - n_init)
         return ParameterSample(
@@ -342,6 +381,14 @@ class NuSTARSampler:
 
     @partial(jit, static_argnums=(0, 4))
     def sample_batch(self, rng_key, head, log_joint_head, samples):
+        # head = ParameterSample(
+        #     sources_x=sources_x,
+        #     sources_y=sources_y,
+        #     sources_b=sources_b,
+        #     mask=mask,
+        #     mu=mu,
+        #     n=n
+        # )
 
         def pack_sample(params):
             return np.array(
@@ -465,6 +512,14 @@ class NuSTARSampler:
         self.mu_posterior += Counter(dict(zip(unique_mus, counts_mu)))
         self.n_posterior += Counter(dict(zip(unique_ns, counts_n)))
 
+    def __compute_psrf(self):
+        v_mean_map = vmap(self.model.mean_emission_map)
+        map_tensor = np.array(
+            [v_mean_map(sample.sources_x, sample.sources_y, sample.sources_b) for sample in self.psrf_samples]
+        )
+        r_hat = compute_psrf(map_tensor)
+        self.r_hat = onp.array(r_hat)
+
     def run_sampler(self, burn_in=False):
         # Note: can be used to continue sampling
         if burn_in:
@@ -472,28 +527,60 @@ class NuSTARSampler:
             print(f"Burning in for {batches * self.sample_batch_size} steps:")
         else:
             # sampling
-            batches = self.samples // self.sample_batch_size
+            batches = (self.samples // self.n_chains) // self.sample_batch_size
             print(f"Sampling for {batches * self.sample_batch_size} steps:")
 
         chains, all_mus, all_ns, acceptances, all_moves, all_alphas = [], [], [], [], [], []
         t = tqdm(total=(batches * self.sample_batch_size), file=sys.stdout)
         for batch_i in range(batches):
-            self.rng_key, key = random.split(self.rng_key)
-            head, log_joint_head, chain, mus, ns, accepts, moves, alphas = self.sample_batch(
-                key, self.head, self.log_joint_head, self.sample_batch_size
+            self.rng_key, *keys = random.split(self.rng_key, self.n_chains + 1)
+
+            # sources_x_by_chain = np.array([self.head[i].sources_x for i in range(self.n_chains)])
+            # sources_y_by_chain = np.array([self.head[i].sources_y for i in range(self.n_chains)])
+            # sources_b_by_chain = np.array([self.head[i].sources_b for i in range(self.n_chains)])
+            # mask_by_chain = np.array([self.head[i].mask for i in range(self.n_chains)])
+            # mu_by_chain = np.array([self.head[i].mu for i in range(self.n_chains)])
+            # n_by_chain = np.array([self.head[i].n for i in range(self.n_chains)])
+            #
+            # p_batch = pmap(
+            #     self.sample_batch,
+            #     in_axes=(0, 0, 0, 0, 0, 0, 0, 0, None),
+            #     static_broadcasted_argnums=(8,)
+            # )
+            p_batch = vmap(
+                self.sample_batch,
+                in_axes=(0, 0, 0, None),
             )
+            head, log_joint_head, chain, mus, ns, accepts, moves, alphas = p_batch(
+                np.array(keys), self.head, self.log_joint_head, self.sample_batch_size
+            )
+            # print('P BATCH')
+            # print(head)
+            # print(head[0])
+
             self.head, self.log_joint_head = head, log_joint_head
             if not burn_in:
-                chains.append(chain)
-                all_mus.append(mus)
-                all_ns.append(ns)
-            acceptances.append(accepts)
-            all_moves.append(moves)
-            all_alphas.append(alphas)
-            t.update(self.sample_batch_size)
+                # print(chain.shape)
+                # print(mus.shape)
+                # print(np.concatenate(chain, axis=0).shape)
+                # print(mus.flatten().shape)
+                chains.append(np.concatenate(chain, axis=0))
+                all_mus.append(mus.flatten())
+                all_ns.append(ns.flatten())
+
+            if burn_in and self.compute_psrf:
+                self.psrf_samples.append(self.head)
+
+            acceptances.append(accepts.flatten())
+            all_moves.append(moves.flatten())
+            all_alphas.append(alphas.flatten())
+            t.update(self.sample_batch_size * (self.n_chains if not burn_in else 1))
         t.close()
         print("Recording stats from run...")
         self.__collect_stats(acceptances, all_moves, all_alphas)
+        if burn_in and self.compute_psrf:
+            print("Computing psrf...")
+            self.__compute_psrf()
         if not burn_in:
             print("Gathering posterior samples...")
             self.__combine_samples(chains, all_mus, all_ns)
@@ -513,7 +600,8 @@ class NuSTARSampler:
                 STATS_BY_MOVE: self.move_stats,
                 BATCH_ACCEPTANCE_RATES: self.batch_acceptance_rates,
                 N_POSTERIOR: self.n_posterior,
-                MU_POSTERIOR: self.mu_posterior
+                MU_POSTERIOR: self.mu_posterior,
+                R_HAT: self.r_hat,
             }
         )
 

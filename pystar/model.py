@@ -12,7 +12,9 @@ from utils import random_sources
 onp.random.seed(1)  # for drawing poisson numbers
 
 import matplotlib.pyplot as plt
-from timeit import default_timer as timer
+from timeit import default_timer
+from timeit import Timer
+from time import process_time
 
 ParameterSample = namedtuple('ParameterSample', ['sources_x', 'sources_y', 'sources_b', 'mask', 'mu', 'n'])
 
@@ -147,7 +149,7 @@ class NuSTARModel:
             in_axes=(0, None, None, None)
         )
         # emission map psf in response to a set of sources
-        all_sources_psf = pmap(image_psf, in_axes=(None, None, 0, 0))
+        all_sources_psf = vmap(image_psf, in_axes=(None, None, 0, 0))
         image_i, image_j = np.linspace(.5, 63.5, 64), np.linspace(0.5, 63.5, 64)
 
         psf_all = all_sources_psf(image_i, image_j, sources_x, sources_y)
@@ -218,8 +220,8 @@ class NuSTARModel:
 
     @partial(jit, static_argnums=(0,))
     def log_joint(self, params):
-        # emission_map = NuSTARModel.mean_emission_map(params.sources_x, params.sources_y, params.sources_b)
-        emission_map = NuSTARModel.mean_emission_map_new(params.sources_x, params.sources_y, params.sources_b, 8)
+        emission_map = NuSTARModel.mean_emission_map(params.sources_x, params.sources_y, params.sources_b)
+        # emission_map = NuSTARModel.mean_emission_map_new(params.sources_x, params.sources_y, params.sources_b, 8)
         return self.log_likelihood(emission_map) + NuSTARModel.log_prior(params)
 
 
@@ -233,27 +235,29 @@ if __name__ == "__main__":
     # # sources_b = np.ones(200)
     # map = onp.array(map)
     # model = NuSTARModel(map)
-    N_SOURCES_TRUTH, N_MAX = 4, 8
+    N_SOURCES_TRUTH, N_MAX = 200, 400
     sources_xt, sources_yt, sources_bt = random_sources(key, N_SOURCES_TRUTH)
-    sources_bt = np.ones((N_SOURCES_TRUTH))
-    sources_xt = np.zeros((N_SOURCES_TRUTH))
-    sources_yt = np.zeros((N_SOURCES_TRUTH))
+    # sources_bt = np.ones((N_SOURCES_TRUTH))
+    # sources_xt = np.zeros((N_SOURCES_TRUTH))
+    # sources_yt = np.zeros((N_SOURCES_TRUTH))
 
     pad = np.zeros(N_MAX - N_SOURCES_TRUTH)
     sources_xp = np.hstack((sources_xt, pad))
     sources_yp = np.hstack((sources_yt, pad))
     sources_bp = np.hstack((sources_bt, pad))
 
-    map_x = NuSTARModel.mean_emission_map_new(sources_xp, sources_yp, sources_bp, 8).block_until_ready()
-    start = timer()
+    map_x = NuSTARModel.mean_emission_map(sources_xp, sources_yp, sources_bp).block_until_ready()
+    start = default_timer()
+    startcpu = process_time()
     # map = NuSTARModel.mean_emission_map_new(np.array(
     #     [-16 * NUSTAR_PIXEL_SIZE, 20*NUSTAR_PIXEL_SIZE, 0*NUSTAR_PIXEL_SIZE]),
     #     np.array([2 * NUSTAR_PIXEL_SIZE, 20 * NUSTAR_PIXEL_SIZE, 22 * NUSTAR_PIXEL_SIZE]),
     #     np.array([1,6,15]),
     #     8
     # )
-    map = NuSTARModel.mean_emission_map_new(sources_xp, sources_yp, sources_bp, 8).block_until_ready()
-    print(timer() - start)
+    map = NuSTARModel.mean_emission_map(sources_xp, sources_yp, sources_bp).block_until_ready()
+    print("wall time:", default_timer() - start)
+    print("cpu time:", process_time() - startcpu)
     print(np.sum(map))
     plt.matshow(map)
-    plt.show()
+    # plt.show()

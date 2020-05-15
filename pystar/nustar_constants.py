@@ -36,6 +36,7 @@ STATS_BY_MOVE = "stats by move type"
 N_POSTERIOR = "n posterior"
 MU_POSTERIOR = "mu posterior"
 BATCH_ACCEPTANCE_RATES = "acceptance rates"
+R_HAT = "r hat"
 
 # per move type strings
 DESCRIPTION = "description"
