@@ -1,6 +1,8 @@
 # nustar-probabilistic-cataloging
 Inference of point sources observed by the NuSTAR X-Ray telescope using probabilistic cataloging.
 
+Based on jax, google's flexible ML research library: https://github.com/google/jax
+
 NOTES:
 - `model.py` contains the code for computing the likelihood of a set of parameters
 - `sampler.py` contains the fully functional sampling code, powered by `jax`. The constraints of `jax` lead to some interesting ways of doing things such as indexing.
