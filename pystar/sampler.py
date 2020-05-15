@@ -22,7 +22,7 @@ class NuSTARSampler:
     def __init__(
             self, model, rng_key, params_init=None, burn_in_steps=0, samples=10000, jump_rate=.1, hyper_rate=.02,
             proposal_width_xy=.75, proposal_width_b=2.0, proposal_width_mu=1.0, proposal_width_split=200,
-            sample_batch_size=1000, description="", n_chains=1, compute_psrf=False
+            sample_batch_size=1000, description="", n_chains=1, compute_psrf=False, sample_interval=500
     ):
         self.model = model
         self.rng_key = rng_key
@@ -59,7 +59,7 @@ class NuSTARSampler:
         self.batch_acceptance_rates = []
         self.description = description
         self.compute_psrf = compute_psrf
-        self.psrf_samples = []
+        self.sample_interval = sample_interval
         self.r_hat = None
 
         # posterior
@@ -512,11 +512,12 @@ class NuSTARSampler:
         self.mu_posterior += Counter(dict(zip(unique_mus, counts_mu)))
         self.n_posterior += Counter(dict(zip(unique_ns, counts_n)))
 
-    def __compute_psrf(self):
-        v_mean_map = vmap(self.model.mean_emission_map)
-        map_tensor = np.array(
-            [v_mean_map(sample.sources_x, sample.sources_y, sample.sources_b) for sample in self.psrf_samples]
-        )
+    def __compute_psrf(self, psrf_samples):
+        psrf_samples = np.concatenate(psrf_samples, axis=1)  # shape = (n_chains, burn_in/sample_interval, 3, N_MAX)
+        v_mean_map = vmap(vmap(lambda sample: self.model.mean_emission_map(sample[0], sample[1], sample[2]), in_axes=(0)), in_axes=(0,))
+        map_tensor = v_mean_map(psrf_samples)
+        map_tensor = np.transpose(map_tensor, axes=(1, 0, 2, 3))
+        # print('MAP TENSOR SHAPE:', map_tensor.shape)
         r_hat = compute_psrf(map_tensor)
         self.r_hat = onp.array(r_hat)
 
@@ -530,7 +531,7 @@ class NuSTARSampler:
             batches = (self.samples // self.n_chains) // self.sample_batch_size
             print(f"Sampling for {batches * self.sample_batch_size} steps:")
 
-        chains, all_mus, all_ns, acceptances, all_moves, all_alphas = [], [], [], [], [], []
+        chains, all_mus, all_ns, acceptances, all_moves, all_alphas, psrf_samples = [], [], [], [], [], [], []
         t = tqdm(total=(batches * self.sample_batch_size), file=sys.stdout)
         for batch_i in range(batches):
             self.rng_key, *keys = random.split(self.rng_key, self.n_chains + 1)
@@ -567,9 +568,8 @@ class NuSTARSampler:
                 chains.append(np.concatenate(chain, axis=0))
                 all_mus.append(mus.flatten())
                 all_ns.append(ns.flatten())
-
             if burn_in and self.compute_psrf:
-                self.psrf_samples.append(self.head)
+                psrf_samples.append(chain[:, 0::self.sample_interval, :, :])
 
             acceptances.append(accepts.flatten())
             all_moves.append(moves.flatten())
@@ -580,7 +580,7 @@ class NuSTARSampler:
         self.__collect_stats(acceptances, all_moves, all_alphas)
         if burn_in and self.compute_psrf:
             print("Computing psrf...")
-            self.__compute_psrf()
+            self.__compute_psrf(psrf_samples)
         if not burn_in:
             print("Gathering posterior samples...")
             self.__combine_samples(chains, all_mus, all_ns)

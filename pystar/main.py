@@ -38,7 +38,7 @@ sampler = NuSTARSampler(
     model, key, burn_in_steps=BURN_IN_STEPS, samples=SAMPLES, jump_rate=JUMP_RATE, hyper_rate=HYPER_RATE,
     proposal_width_xy=PROPOSAL_WIDTH_XY, proposal_width_b=PROPOSAL_WIDTH_B, proposal_width_mu=PROPOSAL_WIDTH_MU,
     proposal_width_split=PROPOSAL_WIDTH_SPLIT, sample_batch_size=SAMPLE_BATCH_SIZE, description=experiment_description,
-    n_chains=N_CHAINS, compute_psrf=CHECK_CONVERGENCE
+    n_chains=N_CHAINS, compute_psrf=CHECK_CONVERGENCE, sample_interval=SAMPLE_INTERVAL
 )
 sampler.sample_with_burn_in()
 posterior = sampler.get_posterior_sources()
