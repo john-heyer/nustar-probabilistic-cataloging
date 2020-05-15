@@ -22,7 +22,7 @@ ParameterSample = namedtuple('ParameterSample', ['sources_x', 'sources_y', 'sour
 # [] inspect splits/merges again
 # [] parallelize over sources, pmap fails (currently have parallel chains)
 # [] make non-normal moves constant time
-# [] use logging
+# [] logging
 # [] add background
 # [] add vignetting
 # [] try to get hmc to work
