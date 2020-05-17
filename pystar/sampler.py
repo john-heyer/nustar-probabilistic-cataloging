@@ -571,7 +571,7 @@ class NuSTARSampler:
                 in_axes=(0, 0, 0, None),
                 static_broadcasted_argnums=(3,)
             )
-
+        p_batch = jit(p_batch, static_argnums=(3,))
         for batch_i in range(batches):
             self.rng_key, *keys = random.split(self.rng_key, self.n_chains + 1)
             head, log_joint_head, chain, mus, ns, accepts, moves, alphas = p_batch(

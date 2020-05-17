@@ -21,6 +21,7 @@ ParameterSample = namedtuple('ParameterSample', ['sources_x', 'sources_y', 'sour
 # TODO:
 # [] cond in power law psf for padded sources
 # [] inspect splits/merges again
+# [] config parser w/defaults
 # [] parallelize over sources, pmap fails (currently have parallel chains)
 # [] make non-normal moves constant time
 # [] logging
