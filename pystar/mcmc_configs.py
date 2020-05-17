@@ -27,31 +27,33 @@ PROPOSAL_WIDTH_B = 10.0
 # σ_mu = PROPOSAL_WIDTH_MU * sqrt(n_sources)
 PROPOSAL_WIDTH_MU = 2.0
 # σ_split = PROPOSAL_WIDTH_SPLIT * PSF_PIXEL_SIZE * sqrt(1/n_sources)
-PROPOSAL_WIDTH_SPLIT = 1.5*200*7
+PROPOSAL_WIDTH_SPLIT = 2000
 
 # produces floor(SAMPLES/SAMPLE_BATCH_SIZE/N_CHAINS) * SAMPLE_BATCH_SIZE * N_CHAINS samples, divided amongst N_CHAINS
-N_CHAINS = 1
-SAMPLES = 6000
-BURN_IN_STEPS = 4000  # each chain goes through all BURN_IN_STEPS
+N_CHAINS = 4
+SAMPLES = 64000
+BURN_IN_STEPS = 300000  # each chain goes through all BURN_IN_STEPS
 SAMPLE_BATCH_SIZE = 1000 * N_CHAINS
 
 # alternative move rates, divided evenly between birth/death and split/merge
-BIRTH_DEATH_RATE = 0.10
-SPLIT_MERGE_RATE = 0.00
-HYPER_RATE = .01
+BIRTH_DEATH_RATE = 0.00
+SPLIT_MERGE_RATE = 0.10
+HYPER_RATE = .02
 
 # use to approximate psf with a power_law increasing speed drastically
 USE_POWER_LAW_PSF_APPROXIMATION = True
 # when using true PSF, up_sample from the (1300x1300) PSF by (up_sample*64 x up_sample*64) for increased accuracy
-PSF_UP_SAMPLE_FACTOR = 4
+PSF_UP_SAMPLE_FACTOR = 1
 
 # when true, use every (SAMPLE_INTERVAL)th sample from each batch from all n_chains to compute r_hat statistic, i.e.
 # M = N_CHAINS, N = BURN_IN_STEPS//SAMPLE_INTERVAL
-CHECK_CONVERGENCE = False
+CHECK_CONVERGENCE = True
+if CHECK_CONVERGENCE:
+    assert N_CHAINS > 1, "Cannot compute convergence diagnostics from just one chain"  # save yourself from a headache!
 SAMPLE_INTERVAL = 500
 
 # file names to save results, be careful not to overwrite
-EXPERIMENT_DIR = "experiments/testing/parallel/2"
+EXPERIMENT_DIR = "experiments/sm_v_bd/sm/widest_width_long"
 os.makedirs(os.path.join(os.getcwd(), EXPERIMENT_DIR), exist_ok=True)  # mkdir if doesn't exist
 POSTERIOR_FILE = os.path.join(EXPERIMENT_DIR, "posterior.npz")
 STATS_FILE = os.path.join(EXPERIMENT_DIR, "stats.dictionary")

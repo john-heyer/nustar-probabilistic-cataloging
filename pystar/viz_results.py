@@ -41,7 +41,7 @@ acceptance_rates = stats.pop(BATCH_ACCEPTANCE_RATES)
 r_hat = stats.pop(R_HAT)
 window_scale = stats.pop(WIND_SCALE_STR)
 
-print("\n======acceptance stats======")
+print("\n==========acceptance stats==========")
 
 for stat in stats:
     print(stat, ":", stats[stat])
@@ -57,7 +57,7 @@ for move in move_stats:
             if proposed != 0:
                 print("\t", ACCEPTANCE_RATE, ":", move_stats[move][move_stat]/proposed)
 
-print("============================\n")
+print("====================================\n")
 
 
 def percent_outside(sources_x, sources_y):
@@ -170,6 +170,7 @@ plt.xlabel("b")
 plt.ylabel("p(B > b)")
 plt.show()
 
+# histograms of bs
 plt.hist(x=gt_b)
 plt.title("b Ground Truth")
 plt.xlabel("b")

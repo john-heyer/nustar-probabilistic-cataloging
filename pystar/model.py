@@ -19,6 +19,7 @@ from time import process_time
 ParameterSample = namedtuple('ParameterSample', ['sources_x', 'sources_y', 'sources_b', 'mask', 'mu', 'n'])
 
 # TODO:
+# [] cond in power law psf for padded sources
 # [] inspect splits/merges again
 # [] parallelize over sources, pmap fails (currently have parallel chains)
 # [] make non-normal moves constant time
@@ -103,6 +104,7 @@ class NuSTARModel:
                     in_axes=(None, 0, None, None, None, None)
                 )
                 return src_b * map_source(x_cds, y_cds, src_x, src_y, theta, psf_interpolated)
+
             non_pad = source_b != 0
             src_map = lax.cond(
                 non_pad,
@@ -232,8 +234,8 @@ class NuSTARModel:
 
 if __name__ == "__main__":
     key = random.PRNGKey(3)
-    n_sources, n_max = 40, 80
-    sources_xt, sources_yt, sources_bt = random_sources(key)
+    n_sources, n_max = 4, 8
+    sources_xt, sources_yt, sources_bt = random_sources(key, n_sources)
 
     pad = np.zeros(n_max - n_sources)
     sources_xp = np.hstack((sources_xt, pad))

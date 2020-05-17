@@ -8,7 +8,7 @@ from sampler import NuSTARSampler
 from utils import random_sources, random_sources_faint, write_results
 
 # set random seed
-key = random.PRNGKey(6)
+key = random.PRNGKey(24)
 key, sub_key = random.split(key)
 
 # generate ground truth observation uniformly from prior or from faint b distribution
@@ -37,6 +37,8 @@ params_gt = ParameterSample(
 
 # add optional description, e.g.
 experiment_description = f"""
+**USES ONLY SM w/ 4x WIDTH, LONGER RUN**
+
 Configs:
     {SAMPLES=},
     {N_SOURCES_TRUTH=},
@@ -52,7 +54,7 @@ Configs:
     {PROPOSAL_WIDTH_XY=},
     {PROPOSAL_WIDTH_B=},
     {PROPOSAL_WIDTH_MU=},
-
+    {PROPOSAL_WIDTH_SPLIT=},
 """
 
 model = NuSTARModel(observed_image, use_power_law=USE_POWER_LAW_PSF_APPROXIMATION, up_sample=PSF_UP_SAMPLE_FACTOR)
