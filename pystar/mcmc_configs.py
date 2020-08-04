@@ -30,10 +30,10 @@ PROPOSAL_WIDTH_MU = 2.0
 PROPOSAL_WIDTH_SPLIT = 2000
 
 # produces floor(SAMPLES/SAMPLE_BATCH_SIZE/N_CHAINS) * SAMPLE_BATCH_SIZE * N_CHAINS samples, divided amongst N_CHAINS
-N_CHAINS = 1
-SAMPLES = 40
-BURN_IN_STEPS = 100  # each chain goes through all BURN_IN_STEPS
-SAMPLE_BATCH_SIZE = 10 * N_CHAINS
+N_CHAINS = 4
+SAMPLES = 64000
+BURN_IN_STEPS = 300000  # each chain goes through all BURN_IN_STEPS
+SAMPLE_BATCH_SIZE = 1000 * N_CHAINS
 
 # alternative move rates, divided evenly between birth/death and split/merge
 BIRTH_DEATH_RATE = 0.00
