@@ -1,3 +1,7 @@
+import os
+
+PSF_BY_ARC_MINUTE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "psf_by_arcminute.npy")
+
 NUSTAR_IMAGE_LENGTH = 64
 PSF_IMAGE_LENGTH = 1300
 IM_SCALE = (1300**2)/(64**2)
