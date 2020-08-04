@@ -18,7 +18,7 @@ else:
     sources_xt, sources_yt, sources_bt = random_sources(sub_key, N_SOURCES_TRUTH)
 
 # generate observed image, using power_law approximation or true psf
-if USE_POWER_LAW_PSF_APPROXIMATION:
+if USE_POWER_LAW_PSF_ESTIMATE:
     mean_image = NuSTARModel.mean_emission_map_power_law(sources_xt, sources_yt, sources_bt)
 else:
     mean_image = NuSTARModel.mean_emission_map(sources_xt, sources_yt, sources_bt, PSF_UP_SAMPLE_FACTOR)
@@ -37,15 +37,16 @@ params_gt = ParameterSample(
 
 # add optional description, e.g.
 experiment_description = f"""
-**USES ONLY SM w/ 4x WIDTH, LONGER RUN**
+**ADD OPTIONAL EXPERIMENT DESCRIPTION **
 
 Configs:
+    {key=},
     {SAMPLES=},
     {N_SOURCES_TRUTH=},
     {N_MIN=}, {N_MAX=},
     {N_CHAINS=},
     {USE_FAINT_GENERATIVE_DIST=},
-    {USE_POWER_LAW_PSF_APPROXIMATION=},
+    {USE_POWER_LAW_PSF_ESTIMATE=},
     {B_MIN=}, {B_MAX=},
     {WINDOW_SCALE=},
     {BIRTH_DEATH_RATE=},
@@ -57,10 +58,10 @@ Configs:
     {PROPOSAL_WIDTH_SPLIT=},
 """
 
-model = NuSTARModel(observed_image, use_power_law=USE_POWER_LAW_PSF_APPROXIMATION, up_sample=PSF_UP_SAMPLE_FACTOR)
+model = NuSTARModel(observed_image, use_power_law=USE_POWER_LAW_PSF_ESTIMATE, up_sample=PSF_UP_SAMPLE_FACTOR)
 sampler = NuSTARSampler(model, key,
                         burn_in_steps=BURN_IN_STEPS, samples=SAMPLES, n_chains=N_CHAINS,
-                        use_power_law=USE_POWER_LAW_PSF_APPROXIMATION, up_sample=PSF_UP_SAMPLE_FACTOR,
+                        use_power_law=USE_POWER_LAW_PSF_ESTIMATE, up_sample=PSF_UP_SAMPLE_FACTOR,
                         birth_death_rate=BIRTH_DEATH_RATE, split_merge_rate=SPLIT_MERGE_RATE, hyper_rate=HYPER_RATE,
                         proposal_width_xy=PROPOSAL_WIDTH_XY, proposal_width_b=PROPOSAL_WIDTH_B,
                         proposal_width_mu=PROPOSAL_WIDTH_MU, proposal_width_split=PROPOSAL_WIDTH_SPLIT,
