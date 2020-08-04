@@ -14,6 +14,11 @@ parser.add_argument(
     'stats_dir',
     help='relative path to experiment directory containing a posterior npz file and pickled stats dictionary file'
 )
+parser.add_argument(
+    '--show_sample',
+    action='store_true',
+    help='show a sample from the posterior with red circles. Increases size of both gt and sample sources for zooming'
+)
 args = parser.parse_args()
 
 data_dir = os.path.join(os.getcwd(), args.stats_dir)
@@ -109,9 +114,14 @@ if r_hat is not None:
 
 
 # plot 2d histogram of sources
-plt.hist2d(x=p_x, y=p_y, range=[[1.4*window_min, 1.4*window_max], [1.4*window_min, 1.4*window_max]], bins=64, weights=p_b)
-plt.scatter(x=gt_x, y=gt_y, c=gt_b, s=30, edgecolors='black')
-plt.scatter(x=last_x, y=last_y, c=last_b, s=30, edgecolors='red')
+plt.hist2d(x=p_x, y=p_y, range=[[1.2*window_min, 1.2*window_max], [1.2*window_min, 1.2*window_max]], bins=64, weights=p_b)
+circle_size = 10
+
+if args.show_sample:
+    circle_size = 30
+    plt.scatter(x=last_x, y=last_y, c=last_b, s=circle_size, edgecolors='red')
+
+plt.scatter(x=gt_x, y=gt_y, c=gt_b, s=circle_size, edgecolors='black')
 plt.gca().add_patch(Rectangle(
     (window_min, window_min),
     2 * window_max,
@@ -161,7 +171,7 @@ plt.ylabel("p(B > b)")
 plt.show()
 
 # plot cdf over source brightness for posterior
-posterior_b_sample = np.random.choice(p_b, size=2000, replace=False)
+posterior_b_sample = np.random.choice(p_b, size=2000)
 posterior_b_sort = np.sort(posterior_b_sample)
 pr_b = np.linspace(1, 0, np.size(posterior_b_sort))
 plt.scatter(x=posterior_b_sort, y=pr_b)
