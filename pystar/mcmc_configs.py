@@ -30,30 +30,32 @@ PROPOSAL_WIDTH_MU = 2.0
 PROPOSAL_WIDTH_SPLIT = 2000
 
 # produces floor(SAMPLES/SAMPLE_BATCH_SIZE/N_CHAINS) * SAMPLE_BATCH_SIZE * N_CHAINS samples, divided amongst N_CHAINS
-N_CHAINS = 4
-SAMPLES = 64000
-BURN_IN_STEPS = 300000  # each chain goes through all BURN_IN_STEPS
-SAMPLE_BATCH_SIZE = 1000 * N_CHAINS
+N_CHAINS = 1
+SAMPLES = 40
+BURN_IN_STEPS = 100  # each chain goes through all BURN_IN_STEPS
+SAMPLE_BATCH_SIZE = 10 * N_CHAINS
 
 # alternative move rates, divided evenly between birth/death and split/merge
 BIRTH_DEATH_RATE = 0.00
 SPLIT_MERGE_RATE = 0.10
-HYPER_RATE = .02
+HYPER_RATE = .005
 
-# use to approximate psf with a power_law increasing speed drastically
-USE_POWER_LAW_PSF_APPROXIMATION = True
+# use to approximate psf with a power_law, increasing speed drastically
+USE_POWER_LAW_PSF_ESTIMATE = False
 # when using true PSF, up_sample from the (1300x1300) PSF by (up_sample*64 x up_sample*64) for increased accuracy
 PSF_UP_SAMPLE_FACTOR = 1
 
 # when true, use every (SAMPLE_INTERVAL)th sample from each batch from all n_chains to compute r_hat statistic, i.e.
 # M = N_CHAINS, N = BURN_IN_STEPS//SAMPLE_INTERVAL
-CHECK_CONVERGENCE = True
+CHECK_CONVERGENCE = False
 if CHECK_CONVERGENCE:
     assert N_CHAINS > 1, "Cannot compute convergence diagnostics from just one chain"  # save yourself from a headache!
 SAMPLE_INTERVAL = 500
 
 # file names to save results, be careful not to overwrite
-EXPERIMENT_DIR = "experiments/sm_v_bd/sm/widest_width_long"
-os.makedirs(os.path.join(os.getcwd(), EXPERIMENT_DIR), exist_ok=True)  # mkdir if doesn't exist
+EXPERIMENT_ROOT = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), 'experiments')
+EXPERIMENT_DIR = "testing/path/1"  # SET EXPERIMENT DIRECTORY !
+EXPERIMENT_PATH = os.path.join(EXPERIMENT_ROOT, EXPERIMENT_DIR)
+os.makedirs(EXPERIMENT_PATH, exist_ok=True)  # mkdir if doesn't exist
 POSTERIOR_FILE = os.path.join(EXPERIMENT_DIR, "posterior.npz")
 STATS_FILE = os.path.join(EXPERIMENT_DIR, "stats.dictionary")

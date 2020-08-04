@@ -8,7 +8,7 @@ NOTES:
 - `sampler.py` contains the fully functional sampling code, powered by `jax`. The constraints of `jax` lead to some interesting ways of doing things such as indexing.
 - Use file `mcmc_configs.py` to configure the sampling parameters and mock data, and `main.py` to run experiment.
 - Use script `viz_results.py` to visualize the posterior and read stats.
-    - example: we set the `EXPERIMENT_DIR` to `experiments/testing` in `mcmc_configs.py`
+    - example: we set the `EXPERIMENT_DIR` to `testing` in `mcmc_configs.py`
         - $ `python pystar/viz_results.py experiments/testing`
 
 To run experiment:
