@@ -2,7 +2,7 @@ import pickle
 
 import numpy as onp
 import jax.numpy as np
-from jax import jit, random
+from jax import random
 
 from mcmc_configs import *
 
