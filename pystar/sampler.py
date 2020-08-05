@@ -40,7 +40,6 @@ class NuSTARSampler:
 
         self.log_joint_head = vmap(model.log_joint)(self.head)
 
-
         # sampler configs
         self.burn_in_steps = burn_in_steps
         self.samples = samples
@@ -57,7 +56,7 @@ class NuSTARSampler:
 
         # stats
         self.move_stats = None
-        self.__init_move_stats()
+        self._init_move_stats()
         self.proposals = 0
         self.accepted = 0
         self.batch_acceptance_rates = []
@@ -76,7 +75,8 @@ class NuSTARSampler:
         # only used for testing as assertions will not compile with jax
         for i in range(n_chains):
             assert params.n[i] == np.sum(params.mask[i]), "parameter n not matching mask"
-            assert np.all(params.mask[i] == (np.arange(N_MAX) < params.n[i])), "mask is not an array of ones with zero padding"
+            assert np.all(params.mask[i] == (np.arange(N_MAX) < params.n[i])), \
+                "mask is not an array of ones with zero padding"
             assert np.all(params.sources_x[i][np.logical_not(params.mask[i])] == 0), "outside mask x values not zero"
             assert np.all(params.sources_y[i][np.logical_not(params.mask[i])] == 0), "outside mask y values not zero"
             assert np.all(params.sources_b[i][np.logical_not(params.mask[i])] == 0), "outside mask b values not zero"
@@ -129,7 +129,7 @@ class NuSTARSampler:
             n=n_init
         )
 
-    def __init_move_stats(self):
+    def _init_move_stats(self):
         move_stats = OrderedDict()
         for move in MOVES:
             move_stats[MOVES[move]] = OrderedDict(
@@ -143,7 +143,7 @@ class NuSTARSampler:
         self.move_stats = move_stats
 
     @partial(jit, static_argnums=(0,))
-    def __get_move_type(self, rng_key):
+    def _get_move_type(self, rng_key):
         normal_rate = 1 - self.birth_death_rate - self.split_merge_rate - self.hyper_rate
         bd_rate = self.birth_death_rate/2
         sm_rate = self.split_merge_rate/2
@@ -313,7 +313,7 @@ class NuSTARSampler:
         return sample_new, log_proposal_ratio
 
     @partial(jit, static_argnums=(0,))
-    def __birth_death(self, tup_args):
+    def _birth_death(self, tup_args):
         rng_key, params, move_type = tup_args
         up = (move_type == BIRTH)
         sample_new, log_proposal_ratio = lax.cond(
@@ -326,7 +326,7 @@ class NuSTARSampler:
         return sample_new, log_proposal_ratio
 
     @partial(jit, static_argnums=(0,))
-    def __split_merge(self, tup_args):
+    def _split_merge(self, tup_args):
         rng_key, params, move_type = tup_args
         up = (move_type == SPLIT)
         sample_new, log_proposal_ratio = lax.cond(
@@ -339,15 +339,15 @@ class NuSTARSampler:
         return sample_new, log_proposal_ratio
 
     @partial(jit, static_argnums=(0,))
-    def __jump_proposal(self, tup_args):
+    def _jump_proposal(self, tup_args):
         rng_key, params, move_type = tup_args
         birth_death = ((move_type == BIRTH) | (move_type == DEATH))
         sample_new, log_proposal_ratio = lax.cond(
             birth_death,
             (rng_key, params, move_type),
-            self.__birth_death,
+            self._birth_death,
             (rng_key, params, move_type),
-            self.__split_merge
+            self._split_merge
         )
         return sample_new, log_proposal_ratio
 
@@ -384,7 +384,7 @@ class NuSTARSampler:
         return sample_new, log_proposal_ratio
 
     @partial(jit, static_argnums=(0,))
-    def __normal_hyper(self, tup_args):
+    def _normal_hyper(self, tup_args):
         rng_key, params, move_type = tup_args
         normal = (move_type == NORMAL)
         sample_new, log_proposal_ratio = lax.cond(
@@ -397,14 +397,14 @@ class NuSTARSampler:
         return sample_new, log_proposal_ratio
 
     @partial(jit, static_argnums=(0,))
-    def __cond_proposal(self, rng_key, params, move_type):
+    def _cond_proposal(self, rng_key, params, move_type):
         jump = ((move_type != NORMAL) & (move_type != HYPER))
         sample_new, log_proposal_ratio = lax.cond(
             jump,
             (rng_key, params, move_type),
-            self.__jump_proposal,
+            self._jump_proposal,
             (rng_key, params, move_type),
-            self.__normal_hyper
+            self._normal_hyper
         )
         sample_log_joint = self.model.log_joint(sample_new)
         return sample_new, log_proposal_ratio, sample_log_joint
@@ -423,9 +423,11 @@ class NuSTARSampler:
 
         def sampler_kernel(i, key, head, log_joint_head, chain, mus_i, ns_i, acceptances_i, moves_i, log_alphas_i):
             key1, key2, key3 = random.split(key, 3)
-            move_type = self.__get_move_type(key1)
-            sample_new, log_proposal_ratio, sample_log_joint = self.__cond_proposal(key2, head, move_type)
-            # if move_type != 0 and move_type != 5: (for debugging particular moves)
+            move_type = self._get_move_type(key1)
+            sample_new, log_proposal_ratio, sample_log_joint = self._cond_proposal(key2, head, move_type)
+
+            # if move_type == SPLIT:  # (for debugging particular moves, disable jit; currently fails due to vmap)  TODO
+
             log_alpha = sample_log_joint - log_joint_head + log_proposal_ratio
             accept = np.log(random.uniform(key3, minval=0, maxval=1)) < log_alpha
             new_head = lax.cond(accept, sample_new, lambda x: x, head, lambda x: x)
@@ -458,11 +460,13 @@ class NuSTARSampler:
 
         rng_key, final_sample, final_log_joint, all_samples, all_mus, all_ns, acceptances, moves, log_alphas = \
             lax.fori_loop(0, samples, next_state, state_init)
+
         # equivalently (for debugging without jit):
         # state = state_init
         # for i in range(samples):
         #     state = next_state(i, state)
         # rng_key, final_sample, final_log_joint, all_samples, all_mus, all_ns, acceptances, moves, log_alphas = state
+
         return final_sample, final_log_joint, all_samples, all_mus, all_ns, acceptances, moves, np.exp(log_alphas)
 
     def sample_with_burn_in(self):
@@ -472,7 +476,7 @@ class NuSTARSampler:
         self.run_sampler(burn_in=False)
         print("Done!")
 
-    def __collect_stats(self, batch_size, acceptances, moves, alphas):
+    def _collect_stats(self, batch_size, acceptances, moves, alphas):
         acceptances_arr = np.array(acceptances)
         moves_arr = np.array(moves)
         alpha_arr = np.array(alphas)
@@ -515,7 +519,7 @@ class NuSTARSampler:
         self.accepted += total_accepts.item()
         self.batch_acceptance_rates += list(batch_acceptance_rates)
 
-    def __combine_samples(self, chains, mus, ns):
+    def _combine_samples(self, chains, mus, ns):
         source_posterior = onp.concatenate(chains, axis=0)
         unique_mus, counts_mu = onp.unique(mus, return_counts=True)
         unique_ns, counts_n = onp.unique(ns, return_counts=True)
@@ -524,7 +528,7 @@ class NuSTARSampler:
         self.mu_posterior += Counter(dict(zip(unique_mus, counts_mu)))
         self.n_posterior += Counter(dict(zip(unique_ns, counts_n)))
 
-    def __compute_psrf(self, psrf_samples):
+    def _compute_psrf(self, psrf_samples):
         psrf_samples = np.concatenate(psrf_samples, axis=1)  # shape = (n_chains, burn_in/sample_interval, 3, N_MAX)
         if self.use_power_law:
             v_mean_map = vmap(
@@ -591,13 +595,13 @@ class NuSTARSampler:
             t.update(batch_size * (self.n_chains if not burn_in else 1))
         t.close()
         print("Recording stats from run...")
-        self.__collect_stats(batch_size * self.n_chains, acceptances, all_moves, all_alphas)
+        self._collect_stats(batch_size * self.n_chains, acceptances, all_moves, all_alphas)
         if burn_in and self.compute_psrf:
             print("Computing psrf...")
-            self.__compute_psrf(psrf_samples)
+            self._compute_psrf(psrf_samples)
         if not burn_in:
             print("Gathering posterior samples...")
-            self.__combine_samples(chains, all_mus, all_ns)
+            self._combine_samples(chains, all_mus, all_ns)
 
     def get_posterior_sources(self):
         return self.source_posterior
