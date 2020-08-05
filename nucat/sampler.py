@@ -11,8 +11,8 @@ from tqdm import tqdm
 from mcmc_configs import XY_MAX, XY_MIN, N_MIN, N_MAX, B_MIN, B_MAX, WINDOW_SCALE
 from model import ParameterSample, NuSTARModel
 from nustar_constants import *
-from utils import random_sources, random_source
 from psrf import compute_psrf
+from utils import random_sources, random_source
 
 onp.random.seed(3)  # for drawing poisson numbers
 

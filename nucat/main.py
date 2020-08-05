@@ -1,4 +1,3 @@
-from timeit import default_timer as timer
 import jax.numpy as np
 from jax import random
 

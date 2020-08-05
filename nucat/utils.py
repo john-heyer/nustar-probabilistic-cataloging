@@ -1,12 +1,11 @@
 import pickle
 
-import numpy as onp
 import jax.numpy as np
+import numpy as onp
 from jax import random
+from scipy.stats import truncnorm
 
 from mcmc_configs import *
-
-from scipy.stats import truncnorm
 
 
 def get_truncated_normal(mean=0, sd=1, low=0, upp=10):

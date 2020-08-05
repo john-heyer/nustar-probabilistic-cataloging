@@ -1,12 +1,10 @@
 import argparse
-import os
 import pickle
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Rectangle
 
-from nustar_constants import *
 from mcmc_configs import *
 
 parser = argparse.ArgumentParser(description='Visualize sampler results')

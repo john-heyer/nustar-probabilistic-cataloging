@@ -3,9 +3,9 @@ from functools import partial
 
 import jax.numpy as np
 import numpy as onp
-from jax import jit, vmap, scipy, lax, ops, random, pmap
+from jax import jit, vmap, scipy, lax
 
-from mcmc_configs import N_MIN, N_MAX, B_MIN, B_MAX, XY_MAX, XY_MIN, PSF_BY_ARC_MINUTE_PATH
+from mcmc_configs import N_MIN, N_MAX, B_MIN, B_MAX, XY_MAX, XY_MIN
 from nustar_constants import *
 
 onp.random.seed(1)  # for drawing poisson numbers

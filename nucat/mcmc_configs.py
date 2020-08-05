@@ -1,5 +1,6 @@
-from nustar_constants import *
 import os
+
+from nustar_constants import *
 
 # min and max number of allowable sources
 N_MIN = 25
