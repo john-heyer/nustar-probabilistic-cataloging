@@ -1,5 +1,5 @@
-import os
 from nustar_constants import *
+import os
 
 # min and max number of allowable sources
 N_MIN = 25
@@ -41,7 +41,7 @@ SPLIT_MERGE_RATE = 0.10
 HYPER_RATE = .005
 
 # use to approximate psf with a power_law, increasing speed drastically
-USE_POWER_LAW_PSF_ESTIMATE = False
+USE_POWER_LAW_PSF_ESTIMATE = True
 # when using true PSF, up_sample from the (1300x1300) PSF by (up_sample*64 x up_sample*64) for increased accuracy
 PSF_UP_SAMPLE_FACTOR = 1
 
@@ -57,5 +57,5 @@ EXPERIMENT_ROOT = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(_
 EXPERIMENT_DIR = "testing/path/1"  # SET EXPERIMENT DIRECTORY !
 EXPERIMENT_PATH = os.path.join(EXPERIMENT_ROOT, EXPERIMENT_DIR)
 os.makedirs(EXPERIMENT_PATH, exist_ok=True)  # mkdir if doesn't exist
-POSTERIOR_FILE = os.path.join(EXPERIMENT_DIR, "posterior.npz")
-STATS_FILE = os.path.join(EXPERIMENT_DIR, "stats.dictionary")
+POSTERIOR_FILE = os.path.join(EXPERIMENT_PATH, "posterior.npz")
+STATS_FILE = os.path.join(EXPERIMENT_PATH, "stats.dictionary")
