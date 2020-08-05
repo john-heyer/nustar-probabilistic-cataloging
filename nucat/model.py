@@ -8,9 +8,6 @@ from jax import jit, vmap, scipy, lax
 from mcmc_configs import N_MIN, N_MAX, B_MIN, B_MAX, XY_MAX, XY_MIN
 from nustar_constants import *
 
-onp.random.seed(1)  # for drawing poisson numbers
-
-import matplotlib.pyplot as plt
 
 ParameterSample = namedtuple('ParameterSample', ['sources_x', 'sources_y', 'sources_b', 'mask', 'mu', 'n'])
 
@@ -234,6 +231,8 @@ class NuSTARModel:
 
 
 if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+
     sources_xt, sources_yt = np.array([5.1 * NUSTAR_PIXEL_SIZE, 5.9 * NUSTAR_PIXEL_SIZE, -5.5 * NUSTAR_PIXEL_SIZE]),\
                              np.array([5.1 * NUSTAR_PIXEL_SIZE, 5.9 * NUSTAR_PIXEL_SIZE, 5.5 * NUSTAR_PIXEL_SIZE])
     sources_bt = np.array([1.5, 1.5, 2])

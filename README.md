@@ -23,6 +23,7 @@ For GPU support, visit the <a href="https://github.com/google/jax#installation">
 ## Experiment Cookbook:
 - Check configurations in `mcmc_configs.py`
 - Perhaps adjust description in `main.py`
+- Perhaps change `np_seed` and `jax_seed` in `main.py` for reproducibility
     - if single chain:
         - $ `python nucat/main.py`
     - if n chains:

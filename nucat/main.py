@@ -6,8 +6,13 @@ from model import NuSTARModel, ParameterSample
 from sampler import NuSTARSampler
 from utils import random_sources, random_sources_faint, write_results
 
-# set random seed
-key = random.PRNGKey(24)
+import numpy as onp
+
+# set random seeds
+jax_seed = 24
+np_seed = 1
+onp.random.seed(np_seed)  # for drawing poisson numbers
+key = random.PRNGKey(jax_seed)
 key, sub_key = random.split(key)
 
 # generate ground truth observation uniformly from prior or from faint b distribution
