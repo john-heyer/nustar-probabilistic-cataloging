@@ -18,15 +18,12 @@ ParameterSample = namedtuple('ParameterSample', ['sources_x', 'sources_y', 'sour
 # [] compute psrf only using mu and N
 # [] split/merge by distance rather than uniform - requires more debugging and removing legacy code
 # [] add PSF annealing?
-# [] relu psf tensor
-# [] jax issue - disable jit still fails printing on conditionals and loops, use lmap? diff api
-# [] respond to other 3 issues ^
+# [] jax issue - disable jit still fails printing on conditionals and loops
 # [] cond in power law psf for padded sources
-# [in progress] inspect splits/merges again
 # [] config parser w/defaults -> remove dependency on python 3.8
 # [] test gpu performance vmap/pmap etc and update README
 # [] parallelize over sources, pmap fails (currently have parallel chains)
-# [] make non-normal moves constant time
+# [] make non-normal moves constant time (only update 1 or 2 sources and add diff)
 # [] logging
 # [] add background
 # [] add vignetting
