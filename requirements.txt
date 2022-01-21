@@ -4,7 +4,7 @@ backcall==0.2.0
 cycler==0.10.0
 decorator==4.4.2
 ipykernel==5.3.4
-ipython==7.17.0
+ipython==7.31.1
 ipython-genutils==0.2.0
 jax==0.1.75
 jaxlib==0.1.52
